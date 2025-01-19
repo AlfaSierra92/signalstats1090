@@ -1,0 +1,12 @@
+[Unit]
+Description=Msgrates FastAPI Service
+After=network.target
+
+[Service]
+User=clemensv
+WorkingDirectory=/home/clemensv/msgrates
+ExecStart=/home/clemensv/msgrates/start_msgrates.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

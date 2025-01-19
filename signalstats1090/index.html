@@ -1,0 +1,559 @@
+<!-- File: index.html -->
+<!-- Purpose: Provide the frontend for the dump1090 statistics webapp. Displays two line charts
+             for message rates (30s, 60s, 300s) and signal strength (min, max, avg) over 30s. -->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>dump1090 Real-Time Signal Statistics</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #fff;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      border-radius: 8px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: #007BFF;
+      color: #f4f4f9;
+      padding: 10px 20px;
+      border-radius: 8px 8px 0 0;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 24px;
+      text-align: left;
+    }
+
+    .menu {
+      font-size: 24px;
+      cursor: pointer;
+    }
+
+    .chart-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-around;
+    }
+
+    .chart-item {
+      flex: 1 1 45%;
+      margin: 10px;
+    }
+
+    @media (max-width: 768px) {
+      .chart-item {
+        flex: 1 1 100%;
+      }
+    }
+
+    .footer {
+      text-align: center;
+      padding: 10px;
+      border-top: 1px solid #ccc;
+      margin-top: 20px;
+      color: #666;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>dump1090 Real-Time Signal Statistics</h1>
+      <div class="menu">&#9776;</div>
+    </div>
+    <div class="chart-container">
+      <div class="chart-item">
+        <canvas id="msgChart" width="400" height="200"></canvas>
+      </div>
+      <div class="chart-item">
+        <canvas id="signalChart" width="400" height="200"></canvas>
+      </div>
+      <div class="chart-item">
+        <canvas id="distanceChart" width="400" height="200"></canvas>
+      </div>
+      <div class="chart-item">
+        <canvas id="distHistChart" width="400" height="200"></canvas>
+      </div>
+      <div class="chart-item">
+        <canvas id="coverageChart" width="400" height="400"></canvas>
+      </div>
+    </div>
+    <div class="footer">
+      &copy; 2025 Clemens Vasters. All rights reserved.
+    </div>
+  </div>
+
+  <script>
+    const BEARING_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    const msgCtx = document.getElementById("msgChart").getContext("2d");
+    const signalCtx = document.getElementById("signalChart").getContext("2d");
+    const distanceCtx = document.getElementById("distanceChart").getContext("2d");
+    const distHistCtx = document.getElementById("distHistChart").getContext("2d");
+    const coverageCtx = document.getElementById("coverageChart").getContext("2d");
+
+    const msgChart = new Chart(msgCtx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Messages/sec (5s)",
+            data: [],
+            borderColor: "rgb(0,0,255)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(0,0,255)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Messages/sec (15s)",
+            data: [],
+            borderColor: "rgb(0,128,0)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(0,128,0)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Messages/sec (30s)",
+            data: [],
+            borderColor: "rgb(75,192,192)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(75,192,192)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Messages/sec (60s)",
+            data: [],
+            borderColor: "rgb(192,75,192)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(192,75,192)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Messages/sec (300s)",
+            data: [],
+            borderColor: "rgb(192,192,75)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(192,192,75)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+        ],
+      },
+      options: {
+        animation: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value) {
+                return value.toFixed(2); // Display tiny value labels
+              }
+            }
+          },
+        },
+        plugins: {
+          datalabels: {
+            display: true,
+            align: 'top',
+            formatter: (value) => value.toFixed(2)
+          }
+        }
+      },
+    });
+
+    const signalChart = new Chart(signalCtx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Min Signal (30s)",
+            data: [],
+            borderColor: "rgb(255,99,132)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,99,132)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Avg Signal (30s)",
+            data: [],
+            borderColor: "rgb(54,162,235)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(54,162,235)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Max Signal (30s)",
+            data: [],
+            borderColor: "rgb(255,206,86)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,206,86)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P25",
+            data: [],
+            borderColor: "rgb(255,144,0)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,144,0)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P50",
+            data: [],
+            borderColor: "rgb(153,102,255)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(153,102,255)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P75",
+            data: [],
+            borderColor: "rgb(0,204,153)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(0,204,153)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P90",
+            data: [],
+            borderColor: "rgb(102,0,204)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(102,0,204)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P95",
+            data: [],
+            borderColor: "rgb(255,127,80)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,127,80)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P99",
+            data: [],
+            borderColor: "rgb(128,128,128)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(128,128,128)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+        ],
+      },
+      options: {
+        animation: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value) {
+                return value.toFixed(2); // Display tiny value labels
+              }
+            }
+          },
+        },
+        plugins: {
+          datalabels: {
+            display: true,
+            align: 'top',
+            formatter: (value) => value.toFixed(2)
+          }
+        }
+      },
+    });
+
+    const distanceChart = new Chart(distanceCtx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Min Dist (30s)",
+            data: [],
+            borderColor: "rgb(255,0,0)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,0,0)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P25 Dist (30s)",
+            data: [],
+            borderColor: "rgb(255,140,0)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,140,0)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P50 Dist (30s)",
+            data: [],
+            borderColor: "rgb(0,0,255)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(0,0,255)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P75 Dist (30s)",
+            data: [],
+            borderColor: "rgb(0,128,0)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(0,128,0)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Max Dist (30s)",
+            data: [],
+            borderColor: "rgb(128,0,128)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(128,0,128)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+        ],
+      },
+      options: {
+        animation: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value) {
+                return value.toFixed(2); // Display tiny value labels
+              }
+            }
+          },
+        },
+        plugins: {
+          datalabels: {
+            display: true,
+            align: 'top',
+            formatter: (value) => value.toFixed(2)
+          }
+        }
+      },
+    });
+
+    const distLabels = ["0-30", "30-60", "60-90", "90-120", "120-150", "150-180", "180-210", "210-240", "240-270", "270+"];
+    const distHistChart = new Chart(distHistCtx, {
+      type: "bar",
+      data: {
+        labels: distLabels,
+        datasets: [
+          {
+            label: "Positions by Distance (30s)",
+            data: [],
+            backgroundColor: "rgba(153,102,255,0.6)",
+            borderColor: "rgba(153,102,255,1)",
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        animation: false,
+        scales: {
+          y: { beginAtZero: true },
+        },
+      },
+    });
+
+    const coverageColors = [
+      "rgba(255, 99, 132, 0.5)",
+      "rgba(54, 162, 235, 0.5)",
+      "rgba(75, 192, 192, 0.5)",
+      "rgba(153, 102, 255, 0.5)",
+      "rgba(255, 159, 64, 0.5)",
+      "rgba(255, 205, 86, 0.5)"
+    ];
+
+    const coverageData = {
+      labels: BEARING_LABELS,
+      datasets: Array.from({ length: 6 }, (_, i) => ({
+        label: `${i * 80}-${(i + 1) * 80} km`,
+        data: Array(16).fill(0),
+        borderColor: coverageColors[i],
+        backgroundColor: Array(16).fill(coverageColors[i]),
+        fill: true,
+        borderWidth: 2,
+      })),
+    };
+
+    const coverageChart = new Chart(coverageCtx, {
+      type: "radar",
+      data: coverageData,
+      options: {
+        animation: false,
+        scales: {
+          r: {
+            angleLines: { display: true },
+            suggestedMin: 0,
+            suggestedMax: 480,
+          },
+        },
+      },
+    });
+
+    const ws = new WebSocket(`ws://${window.location.host}/ws`);
+    ws.onopen = () => {
+      ws.send("ping");
+    };
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const now = new Date().toLocaleTimeString();
+
+      msgChart.data.labels.push(now);
+      msgChart.data.datasets[0].data.push(data.msg5s);
+      msgChart.data.datasets[1].data.push(data.msg15s);
+      msgChart.data.datasets[2].data.push(data.msg30s);
+      msgChart.data.datasets[3].data.push(data.msg60s);
+      msgChart.data.datasets[4].data.push(data.msg300s);
+      if (msgChart.data.labels.length > 60) {
+        msgChart.data.labels.shift();
+        msgChart.data.datasets[0].data.shift();
+        msgChart.data.datasets[1].data.shift();
+        msgChart.data.datasets[2].data.shift();
+        msgChart.data.datasets[3].data.shift();
+        msgChart.data.datasets[4].data.shift();
+      }
+      msgChart.update();
+
+      signalChart.data.labels.push(now);
+      signalChart.data.datasets[0].data.push(data.sigMin);
+      signalChart.data.datasets[1].data.push(data.sigAvg);
+      signalChart.data.datasets[2].data.push(data.sigMax);
+      signalChart.data.datasets[3].data.push(data.sig25);
+      signalChart.data.datasets[4].data.push(data.sig50);
+      signalChart.data.datasets[5].data.push(data.sig75);
+      signalChart.data.datasets[6].data.push(data.sig90);
+      signalChart.data.datasets[7].data.push(data.sig95);
+      signalChart.data.datasets[8].data.push(data.sig99);
+
+      if (signalChart.data.labels.length > 60) {
+        signalChart.data.labels.shift();
+        signalChart.data.datasets.forEach(ds => ds.data.shift());
+      }
+      signalChart.update();
+
+      distanceChart.data.labels.push(now);
+      distanceChart.data.datasets[0].data.push(data.distMin);
+      distanceChart.data.datasets[1].data.push(data.dist25);
+      distanceChart.data.datasets[2].data.push(data.dist50);
+      distanceChart.data.datasets[3].data.push(data.dist75);
+      distanceChart.data.datasets[4].data.push(data.distMax);
+
+      if (distanceChart.data.labels.length > 60) {
+        distanceChart.data.labels.shift();
+        distanceChart.data.datasets.forEach(ds => ds.data.shift());
+      }
+      distanceChart.update();
+
+      distHistChart.data.labels = distLabels;
+      distHistChart.data.datasets[0].data = data.distHistogram;
+      distHistChart.update();
+
+      const coverageStats = data.coverageStats;
+      coverageStats.forEach((ringData, ringIndex) => {
+        ringData.forEach(([dist, count], segmentIndex) => {
+          coverageChart.data.datasets[ringIndex].data[segmentIndex] = dist;
+          const alpha = Math.min(0.1 + count * 0.1, 1.0);
+          const baseColor = coverageColors[ringIndex].slice(5, -4);
+          coverageChart.data.datasets[ringIndex].backgroundColor[segmentIndex] = `rgba(${baseColor}, ${alpha})`;
+        });
+      });
+      coverageChart.update();
+    };
+  </script>
+</body>
+
+</html>
