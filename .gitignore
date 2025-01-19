@@ -9,6 +9,10 @@ __pycache__/
 # C extensions
 *.so
 
+# version control
+**/_version.py
+signalstats1090/_version.py
+
 # Distribution / packaging
 .Python
 build/
