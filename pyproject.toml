@@ -17,10 +17,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "websockets >= 9.1",
-    "fastapi >=  0.68.0",
-    "uvicorn >= 0.15.0",
-    "pyModeS >= 2.10.0"
+    "websockets >= 14.2",
+    "fastapi >=  0.115.6",
+    "uvicorn[standard] >= 0.34.0",
+    "pyModeS >= 2.29"
 ]
 
 [project.scripts]

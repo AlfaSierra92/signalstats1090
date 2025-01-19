@@ -137,14 +137,13 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-# Check if required parameters are set
-if [[ -z "$ANTENNA_LAT" || -z "$ANTENNA_LON" ]]; then
-    echo "Antenna latitude and longitude are required."
-    exit 1
-fi
-
 case "$ACTION" in
     install)
+        # Check if required parameters are set
+        if [[ -z "$ANTENNA_LAT" || -z "$ANTENNA_LON" ]]; then
+            echo "Antenna latitude and longitude are required."
+            exit 1
+        fi
         install_service
         ;;
     uninstall)
