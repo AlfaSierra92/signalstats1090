@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies and build package
       run: |
         python -m pip install --upgrade pip build wheel
-        python -m pip install pylint
+        python -m pip install flit_scm pylint
         python -m pip install .
         python -m build --sdist --wheel --outdir dist --no-isolation
     
