@@ -26,6 +26,37 @@ To run the backend, execute the following command:
 python msgrates.py
 ```
 
+### Command Line Arguments
+
+The script supports the following command line arguments:
+
+- `--host`: Host to run the web server on (default: `0.0.0.0`).
+- `--port`: Port to run the web server on (default: `8000`).
+- `--antenna-lat`: Antenna latitude (required for running the server).
+- `--antenna-lon`: Antenna longitude (required for running the server).
+- `--dump1090-host`: Host running dump1090 (default: `localhost`).
+- `--dump1090-port`: Port for dump1090 (default: `30005`).
+
+Example usage:
+
+```bash
+python msgrates.py run --antenna-lat 52.5200 --antenna-lon 13.4050
+```
+
+### Installation
+
+You can install the program from pip:
+
+```bash
+pip install signalstats1090
+```
+
+After installation, you can run the program using the following command:
+
+```bash
+signalstats1090 run --antenna-lat 52.5200 --antenna-lon 13.4050
+```
+
 ## Frontend (index.html)
 
 The frontend is an HTML page that uses Chart.js to display various statistics in real-time. It connects to the backend via WebSocket to receive updates and update the charts.
