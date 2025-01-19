@@ -4,27 +4,46 @@ This project provides a web application for real-time monitoring of ADS-B messag
 
 ## Features
 
-- **Message Rate Statistics**: Computes and displays message rates over different intervals (5s, 15s, 30s, 60s, 300s).
-- **Signal Strength Statistics**: Computes and displays minimum, maximum, and average signal strength over 30 seconds.
-- **Distance Statistics**: Computes and displays minimum, maximum, and percentile distances over 30 seconds.
-- **Coverage Statistics**: Displays coverage statistics in a radar chart, showing the distribution of messages by distance and bearing.
+- **Message Rate Statistics**: Computes and displays message rates over
+  different intervals (5s, 15s, 30s, 60s, 300s).
+- **Signal Strength Statistics**: Computes and displays minimum, maximum, and
+  average signal strength over 30 seconds.
+- **Distance Statistics**: Computes and displays minimum, maximum, and
+  percentile distances over 30 seconds.
+- **Coverage Statistics**: Displays coverage statistics in a radar chart,
+  showing the distribution of messages by distance and bearing.
 
-## Backend (main.py)
+## Installation
 
-The backend is built using FastAPI and provides the following functionalities:
+### Prerequisites
 
-- **WebSocket Endpoint**: Handles WebSocket connections to broadcast real-time statistics to the frontend.
-- **ADSB Client**: Connects to a `dump1090` BEAST server to receive ADS-B messages, compute statistics, and update sliding windows.
-- **Statistics Computation**: Computes message rates, signal strength, distance statistics, and coverage statistics.
-- **Broadcast Task**: Periodically computes and broadcasts statistics to all connected WebSocket clients.
+- Python 3.6+
+- `dump1090` running on the same machine or accessible via network.
 
-### Running the Backend
+### Installation
 
-To run the backend, execute the following command:
+You can install the application using `pip`:
 
 ```bash
-python msgrates.py
+pip install signalstats1090
 ```
+
+This will install the `signalstats1090` command-line tool, which you can use to run the backend server.
+
+If you want to run the application as a service, you can use the provided setup script explained below.
+
+### Running the app
+
+To run the app, execute the following command:
+
+```bash
+signalstats1090 run --antenna-lat <antenna_lat> --antenna-lon <antenna_lon>
+```
+
+The `--antenna-lat` and `--antenna-lon` arguments are required. You can find the
+latitude and longitude of your antenna using Google Maps or similar services.
+
+```bash
 
 ### Command Line Arguments
 
@@ -37,29 +56,31 @@ The script supports the following command line arguments:
 - `--dump1090-host`: Host running dump1090 (default: `localhost`).
 - `--dump1090-port`: Port for dump1090 (default: `30005`).
 
-Example usage:
+### Installation as a Service
+
+You can install the program as a service using the provided setup script:
 
 ```bash
-python msgrates.py run --antenna-lat 52.5200 --antenna-lon 13.4050
+wget -qO- https://raw.githubusercontent.com/clemensv/signalstats1090/main/setup.sh > ~/signalstats1090_setup.sh
+chmod +x ~/signalstats1090_setup.sh
 ```
 
-### Installation
-
-You can install the program from pip:
+Then run the setup script with the required arguments:
 
 ```bash
-pip install signalstats1090
+~/signalstats1090_setup.sh install --host <host> --port <port> --antenna-lat <antenna_lat> --antenna-lon <antenna_lon> --dump1090-host <dump1090_host> --dump1090-port <dump1090_port>
 ```
 
-After installation, you can run the program using the following command:
+The `--antenna-lat` and `--antenna-lon` arguments are required.
 
-```bash
-signalstats1090 run --antenna-lat 52.5200 --antenna-lon 13.4050
-```
+#### Arguments for the setup script
 
-## Frontend (index.html)
-
-The frontend is an HTML page that uses Chart.js to display various statistics in real-time. It connects to the backend via WebSocket to receive updates and update the charts.
+- `--host`: Host to run the web server on (default: `0.0.0.0`).
+- `--port`: Port to run the web server on (default: `8000`).
+- `--antenna-lat`: Latitude of the antenna (required).
+- `--antenna-lon`: Longitude of the antenna (required).
+- `--dump1090-host`: Host running dump1090 (default: `localhost`).
+- `--dump1090-port`: Port for dump1090 (default: `30005`).
 
 ### Charts
 
@@ -76,6 +97,8 @@ To view the frontend, open a web browser and navigate to:
 ```
 http://localhost:8000
 ```
+
+or whatever host and port you specified when running the server.
 
 ## License
 

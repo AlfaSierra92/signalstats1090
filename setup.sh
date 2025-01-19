@@ -116,7 +116,7 @@ uninstall_service() {
 
 # Set defaults
 
-HOST="localhost"
+HOST="0.0.0.0"
 PORT=8000
 DUMP1090_HOST="localhost"
 DUMP1090_PORT=30005
