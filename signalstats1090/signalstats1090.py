@@ -28,6 +28,7 @@ import os
 import contextlib
 import subprocess
 import sys
+import logging
 
 # Global deques for timestamps and signal levels in rolling windows.
 MESSAGE_TIMESTAMPS_5S: Deque[float] = deque()
@@ -56,8 +57,14 @@ RING_DISTANCE = 80
 MAX_DISTANCE = 480
 BEARING_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 COVERAGE_60S = defaultdict(int)
-MIN_RSSI_BY_BEARING = [float('inf')] * BEARING_SEGMENTS
+MIN_RSSI_BY_BEARING = [0] * BEARING_SEGMENTS
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+LONG_TERM_MSG_RATES: Deque[float] = deque()
+LONG_TERM_MSG_TIMESTAMPS: Deque[float] = deque()
 
 def get_current_time() -> float:
     """
@@ -229,6 +236,34 @@ def compute_coverage_stats() -> list:
         coverage[ring][segment] = (max(max_dist, dist), count + 1)
     return coverage
 
+def update_long_term_msg_rates(rate_60s: float, now: float) -> None:
+    """
+    Updates the long-term message rates with the latest 60s average.
+    """
+    LONG_TERM_MSG_RATES.append(rate_60s)
+    LONG_TERM_MSG_TIMESTAMPS.append(now)
+    if len(LONG_TERM_MSG_RATES) > 720:  # Keep only the last 12 hours of data (720 minutes)
+        LONG_TERM_MSG_RATES.popleft()
+        LONG_TERM_MSG_TIMESTAMPS.popleft()
+
+def compute_long_term_averages() -> Tuple[float, float, float]:
+    """
+    Computes 5m, 15m, and 60m averages from the long-term message rates.
+    """
+    if not LONG_TERM_MSG_RATES:
+        rate_5s = len(MESSAGE_TIMESTAMPS_5S) / 5.0 if MESSAGE_TIMESTAMPS_5S else 0.0
+        return (rate_5s, rate_5s, rate_5s)
+    
+    now = get_current_time()
+    rates_5m = [rate for ts, rate in zip(LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 300]
+    rates_15m = [rate for ts, rate in zip(LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 900]
+    rates_60m = [rate for ts, rate in zip(LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 3600]
+
+    avg_5m = sum(rates_5m) / len(rates_5m) if rates_5m else 0.0
+    avg_15m = sum(rates_15m) / len(rates_15m) if rates_15m else 0.0
+    avg_60m = sum(rates_60m) / len(rates_60m) if rates_60m else 0.0
+
+    return (avg_5m, avg_15m, avg_60m)
 
 class ADSBClient(TcpClient):
     """
@@ -239,46 +274,49 @@ class ADSBClient(TcpClient):
         super(ADSBClient, self).__init__(host, port, rawtype)
 
     def handle_messages(self, messages):
-        for msg, dbfs_rssi, ts in messages:
-            if len(msg) < 2:
-                continue
-            with DATA_LOCK:
-                MESSAGE_TIMESTAMPS_5S.append(ts)
-                MESSAGE_TIMESTAMPS_15S.append(ts)
-                MESSAGE_TIMESTAMPS_30S.append(ts)
-                MESSAGE_TIMESTAMPS_60S.append(ts)
-                MESSAGE_TIMESTAMPS_300S.append(ts)
+        try:
+            for msg, dbfs_rssi, ts in messages:
+                if len(msg) < 2:
+                    continue
+                with DATA_LOCK:
+                    MESSAGE_TIMESTAMPS_5S.append(ts)
+                    MESSAGE_TIMESTAMPS_15S.append(ts)
+                    MESSAGE_TIMESTAMPS_30S.append(ts)
+                    MESSAGE_TIMESTAMPS_60S.append(ts)
+                    MESSAGE_TIMESTAMPS_300S.append(ts)
 
-                if dbfs_rssi is not None and dbfs_rssi > -100:
-                    SIGNAL_LEVELS_30S.append((ts, dbfs_rssi))
+                    if dbfs_rssi is not None and dbfs_rssi > -100:
+                        SIGNAL_LEVELS_30S.append((ts, dbfs_rssi))
 
-                df_val = pms.df(msg)
-                if df_val in (17, 18) and pms.crc(msg) == 0:
-                    tc = pms.typecode(msg)
-                    lat, lon = None, None
-                    if 5 <= tc <= 8:
-                        lat, lon = pms.adsb.surface_position_with_ref(msg, ref_lat, ref_lon)
-                    elif 9 <= tc <= 18 or 20 <= tc <= 22:
-                        lat, lon = pms.adsb.airborne_position_with_ref(msg, ref_lat, ref_lon)
-                    if lat is not None and lon is not None:
-                        dist_km = haversine_distance(ref_lat, ref_lon, lat, lon)
-                        DISTANCES_30S.append((ts, dist_km))
-                        if dist_km <= MAX_DISTANCE:
-                            ring = int(dist_km // RING_DISTANCE)
-                            bearing = compute_bearing(ref_lat, ref_lon, lat, lon)
-                            segment = int(bearing // (360 / BEARING_SEGMENTS))
-                            key = (ring, segment)
-                            if key in COVERAGE_60S:
-                                COVERAGE_60S[key] = (ts, max(COVERAGE_60S[key][1], dist_km))
-                            else:
-                                COVERAGE_60S[key] = (ts, dist_km)
-                            update_min_rssi_by_bearing(segment, dbfs_rssi, ts)
+                    df_val = pms.df(msg)
+                    if df_val in (17, 18) and pms.crc(msg) == 0:
+                        tc = pms.typecode(msg)
+                        lat, lon = None, None
+                        if 5 <= tc <= 8:
+                            lat, lon = pms.adsb.surface_position_with_ref(msg, ref_lat, ref_lon)
+                        elif 9 <= tc <= 18 or 20 <= tc <= 22:
+                            lat, lon = pms.adsb.airborne_position_with_ref(msg, ref_lat, ref_lon)
+                        if lat is not None and lon is not None:
+                            dist_km = haversine_distance(ref_lat, ref_lon, lat, lon)
+                            DISTANCES_30S.append((ts, dist_km))
+                            if dist_km <= MAX_DISTANCE:
+                                ring = int(dist_km // RING_DISTANCE)
+                                bearing = compute_bearing(ref_lat, ref_lon, lat, lon)
+                                segment = int(bearing // (360 / BEARING_SEGMENTS))
+                                key = (ring, segment)
+                                if key in COVERAGE_60S:
+                                    COVERAGE_60S[key] = (ts, max(COVERAGE_60S[key][1], dist_km))
+                                else:
+                                    COVERAGE_60S[key] = (ts, dist_km)
+                                update_min_rssi_by_bearing(segment, dbfs_rssi, ts)
 
-                update_message_sliding_windows(ts)
-                update_signal_sliding_window(ts)
-                update_distance_sliding_window(ts)
-                update_coverage_sliding_window(ts)
-                expire_min_rssi(ts)
+                    update_message_sliding_windows(ts)
+                    update_signal_sliding_window(ts)
+                    update_distance_sliding_window(ts)
+                    update_coverage_sliding_window(ts)
+                    expire_min_rssi(ts)
+        except Exception as e:
+            logger.error("Error handling messages", exc_info=True)
     
     def run(self, raw_pipe_in=None, stop_flag=None, exception_queue=None):
         self.raw_pipe_in = raw_pipe_in
@@ -287,13 +325,16 @@ class ADSBClient(TcpClient):
         self.connect()
 
         while True:
-            received = [i for i in self.socket.recv(4096)]
-            self.buffer.extend(received)
-            messages = self.read_beast_buffer_rssi_piaware()
-            if not messages:
-                continue
-            else:
-                self.handle_messages(messages)
+            try:
+                received = [i for i in self.socket.recv(4096)]
+                self.buffer.extend(received)
+                messages = self.read_beast_buffer_rssi_piaware()
+                if not messages:
+                    continue
+                else:
+                    self.handle_messages(messages)
+            except Exception as e:
+                logger.error("Error in ADSBClient run loop", exc_info=True)
 
     def read_beast_buffer_rssi_piaware(self):
         """Handle mode-s beast data type.
@@ -316,87 +357,91 @@ class ADSBClient(TcpClient):
         msg = []
         i = 0
 
-        # process the buffer until the last divider <esc> 0x1a
-        # then, reset the self.buffer with the remainder
+        try:
+            # process the buffer until the last divider <esc> 0x1a
+            # then, reset the self.buffer with the remainder
 
-        while i < len(self.buffer):
-            if self.buffer[i : i + 2] == [0x1A, 0x1A]:
-                msg.append(0x1A)
-                i += 1
-            elif (i == len(self.buffer) - 1) and (self.buffer[i] == 0x1A):
-                # special case where the last bit is 0x1a
-                msg.append(0x1A)
-            elif self.buffer[i] == 0x1A:
-                if i == len(self.buffer) - 1:
+            while i < len(self.buffer):
+                if self.buffer[i : i + 2] == [0x1A, 0x1A]:
+                    msg.append(0x1A)
+                    i += 1
+                elif (i == len(self.buffer) - 1) and (self.buffer[i] == 0x1A):
                     # special case where the last bit is 0x1a
                     msg.append(0x1A)
-                elif len(msg) > 0:
-                    messages_mlat.append(msg)
-                    msg = []
-            else:
-                msg.append(self.buffer[i])
-            i += 1
-
-        # save the reminder for next reading cycle, if not empty
-        if len(msg) > 0:
-            reminder = []
-            for i, m in enumerate(msg):
-                if (m == 0x1A) and (i < len(msg) - 1):
-                    # rewind 0x1a, except when it is at the last bit
-                    reminder.extend([m, m])
+                elif self.buffer[i] == 0x1A:
+                    if i == len(self.buffer) - 1:
+                        # special case where the last bit is 0x1a
+                        msg.append(0x1A)
+                    elif len(msg) > 0:
+                        messages_mlat.append(msg)
+                        msg = []
                 else:
-                    reminder.append(m)
-            self.buffer = [0x1A] + msg
-        else:
-            self.buffer = []
+                    msg.append(self.buffer[i])
+                i += 1
 
-        # extract messages
-        messages = []
-        for mm in messages_mlat:
-            ts = time.time()
-
-            msgtype = mm[0]
-            # print(''.join('%02X' % i for i in mm))
-
-            if msgtype == 0x32:
-                # Mode-S Short Message, 7 byte, 14-len hexstr
-                msg = "".join("%02X" % i for i in mm[8:15])
-            elif msgtype == 0x33:
-                # Mode-S Long Message, 14 byte, 28-len hexstr
-                msg = "".join("%02X" % i for i in mm[8:22])
+            # save the reminder for next reading cycle, if not empty
+            if len(msg) > 0:
+                reminder = []
+                for i, m in enumerate(msg):
+                    if (m == 0x1A) and (i < len(msg) - 1):
+                        # rewind 0x1a, except when it is at the last bit
+                        reminder.extend([m, m])
+                    else:
+                        reminder.append(m)
+                self.buffer = [0x1A] + msg
             else:
-                # Other message tupe
-                continue
+                self.buffer = []
 
-            if len(msg) not in [14, 28]:
-                continue
+            # extract messages
+            messages = []
+            for mm in messages_mlat:
+                ts = time.time()
 
-            '''
-                we get the raw 0-255 byte value (raw_rssi = mm[7])
-                we scale it to 0.0 - 1.0 (voltage = raw_rssi / 255)
-                we convert it to a dBFS power value (rolling the squaring of the voltage into the dB calculation)
-            '''
-            try:
-                df = pms.df(msg)
-                raw_rssi = mm[7] # eighth byte of Mode-S message should contain RSSI value
-                if raw_rssi == 0:
-                    dbfs_rssi = -100
+                msgtype = mm[0]
+                # print(''.join('%02X' % i for i in mm))
+
+                if msgtype == 0x32:
+                    # Mode-S Short Message, 7 byte, 14-len hexstr
+                    msg = "".join("%02X" % i for i in mm[8:15])
+                elif msgtype == 0x33:
+                    # Mode-S Long Message, 14 byte, 28-len hexstr
+                    msg = "".join("%02X" % i for i in mm[8:22])
                 else:
-                    rssi_ratio = raw_rssi / 255 
-                    signalLevel = rssi_ratio ** 2 
-                    dbfs_rssi = 10 * math.log10(signalLevel) 
-            except Exception as e:
-                print(f"Error: {e}")
-                continue
- 
-            # skip incomplete message
-            if df in [0, 4, 5, 11] and len(msg) != 14:
-                continue
-            if df in [16, 17, 18, 19, 20, 21, 24] and len(msg) != 28:
-                continue
+                    # Other message tupe
+                    continue
 
-            messages.append([msg, dbfs_rssi, ts])
-        return messages
+                if len(msg) not in [14, 28]:
+                    continue
+
+                '''
+                    we get the raw 0-255 byte value (raw_rssi = mm[7])
+                    we scale it to 0.0 - 1.0 (voltage = raw_rssi / 255)
+                    we convert it to a dBFS power value (rolling the squaring of the voltage into the dB calculation)
+                '''
+                try:
+                    df = pms.df(msg)
+                    raw_rssi = mm[7] # eighth byte of Mode-S message should contain RSSI value
+                    if raw_rssi == 0:
+                        dbfs_rssi = -100
+                    else:
+                        rssi_ratio = raw_rssi / 255 
+                        signalLevel = rssi_ratio ** 2 
+                        dbfs_rssi = 10 * math.log10(signalLevel) 
+                except Exception as e:
+                    logger.error("Error processing RSSI", exc_info=True)
+                    continue
+
+                # skip incomplete message
+                if df in [0, 4, 5, 11] and len(msg) != 14:
+                    continue
+                if df in [16, 17, 18, 19, 20, 21, 24] and len(msg) != 28:
+                    continue
+
+                messages.append([msg, dbfs_rssi, ts])
+            return messages
+        except Exception as e:
+            logger.error("Error reading beast buffer", exc_info=True)
+            return []
 
 
 async def broadcast_stats_task() -> None:
@@ -406,48 +451,60 @@ async def broadcast_stats_task() -> None:
     """
     while True:
         await asyncio.sleep(1.0)
-        with DATA_LOCK:
-            rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
-            sig_min, sig_max, sig_avg = compute_signal_stats()
-            sig_p = compute_signal_percentiles()
-            dist_stats = compute_distance_stats()
-            dist_hist = compute_distance_buckets()
-            coverage_stats = compute_coverage_stats()
-            min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
+        try:
+            with DATA_LOCK:
+                rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
+                sig_min, sig_max, sig_avg = compute_signal_stats()
+                sig_p = compute_signal_percentiles()
+                dist_stats = compute_distance_stats()
+                dist_hist = compute_distance_buckets()
+                coverage_stats = compute_coverage_stats()
+                min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
 
-        payload = {
-            "msg5s": rate_5s,
-            "msg15s": rate_15s,
-            "msg30s": rate_30s,
-            "msg60s": rate_60s,
-            "msg300s": rate_300s,
-            "sigMin": sig_min,
-            "sigMax": sig_max,
-            "sigAvg": sig_avg,
-            "sig25": sig_p["25"],
-            "sig50": sig_p["50"],
-            "sig75": sig_p["75"],
-            "sig90": sig_p["90"],
-            "sig95": sig_p["95"],
-            "sig99": sig_p["99"],
-            "distMin": dist_stats["min"],
-            "dist25": dist_stats["25"],
-            "dist50": dist_stats["50"],
-            "dist75": dist_stats["75"],
-            "dist90": dist_stats["90"],
-            "dist95": dist_stats["95"],
-            "distMax": dist_stats["max"],
-            "distHistogram": dist_hist,
-            "coverageStats": coverage_stats,
-            "minRssiByBearing": min_rssi_by_bearing
-        }
+                # Update long-term message rates every minute
+                if int(get_current_time()) % 60 == 0:
+                    update_long_term_msg_rates(rate_60s, get_current_time())
 
-        # Broadcast to all connected clients
-        for ws_conn in list(CONNECTED_WEBSOCKETS):
-            try:
-                await ws_conn.send_text(json.dumps(payload))
-            except Exception:
-                pass
+                avg_5m, avg_15m, avg_60m = compute_long_term_averages()
+
+            payload = {
+                "msg5s": rate_5s,
+                "msg15s": rate_15s,
+                "msg30s": rate_30s,
+                "msg60s": rate_60s,
+                "msg300s": rate_300s,
+                "sigMin": sig_min,
+                "sigMax": sig_max,
+                "sigAvg": sig_avg,
+                "sig25": sig_p["25"],
+                "sig50": sig_p["50"],
+                "sig75": sig_p["75"],
+                "sig90": sig_p["90"],
+                "sig95": sig_p["95"],
+                "sig99": sig_p["99"],
+                "distMin": dist_stats["min"],
+                "dist25": dist_stats["25"],
+                "dist50": dist_stats["50"],
+                "dist75": dist_stats["75"],
+                "dist90": dist_stats["90"],
+                "dist95": dist_stats["95"],
+                "distMax": dist_stats["max"],
+                "distHistogram": dist_hist,
+                "coverageStats": coverage_stats,
+                "minRssiByBearing": min_rssi_by_bearing,
+                "msg5mAvg": avg_5m,
+                "msg15mAvg": avg_15m,
+                "msg60mAvg": avg_60m
+            }
+
+            # Broadcast to all connected clients
+            for ws_conn in list(CONNECTED_WEBSOCKETS):
+                try:
+                    await ws_conn.send_text(json.dumps(payload))
+                except Exception:
+                    logger.error("Error broadcasting stats", exc_info=True)
+        except Exception as e:
+            logger.error("Error in broadcast_stats_task", exc_info=True)
 
 
 @contextlib.asynccontextmanager
@@ -538,7 +595,7 @@ def main():
                     if k in defaults and getattr(args, k) is None:
                         setattr(args, k, v)
         except Exception:
-            pass
+            logger.error("Failed to load config file", exc_info=True)
     
     # Set defaults if not provided
     for k, v in defaults.items():
@@ -557,16 +614,16 @@ def main():
         try:
             with open(config_file, "w", encoding="utf-8") as cf:
                 json.dump(new_conf, cf)
-            print(f"Configuration written to {config_file}")
+            logger.info(f"Configuration written to {config_file}")
         except Exception as e:
-            print(f"Failed to write config: {e}")
+            logger.error("Failed to write config", exc_info=True)
 
     elif args.command == "run":
         global ref_lat, ref_lon
         if args.antenna_lat is None or args.antenna_lon is None:
             parser.error("Must provide --antenna-lat and --antenna-lon or set them via 'config' first.")
-        print(f"Starting server on {args.host}:{args.port}")
-        print(f"Using antenna location: {args.antenna_lat}, {args.antenna_lon}")
+        logger.info(f"Starting server on {args.host}:{args.port}")
+        logger.info(f"Using antenna location: {args.antenna_lat}, {args.antenna_lon}")
         ref_lat = args.antenna_lat
         ref_lon = args.antenna_lon
         global dump1090_host, dump1090_port
@@ -576,7 +633,7 @@ def main():
 
     else:
         parser.print_help()
-
+        logger.info("Printed help message")
 
 if __name__ == "__main__":
     main()

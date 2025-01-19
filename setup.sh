@@ -53,8 +53,8 @@ After=network.target
 
 [Service]
 User=signalstats1090
-WorkingDirectory=$script_dir
-ExecStart=$venv_dir/bin/python -m $script_dir run
+WorkingDirectory=$home_dir
+ExecStart=signalstats1090 run
 Restart=always
 
 [Install]

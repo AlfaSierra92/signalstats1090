@@ -9,6 +9,7 @@
   <meta charset="utf-8" />
   <title>dump1090 Real-Time Signal Statistics</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -47,6 +48,20 @@
       cursor: pointer;
     }
 
+    .current-values {
+      display: flex;
+      justify-content: space-around;
+      padding: 10px;
+      background-color: #e9ecef;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+
+    .value-item {
+      flex: 1;
+      text-align: center;
+    }
+
     .chart-container {
       display: flex;
       flex-wrap: wrap;
@@ -80,6 +95,23 @@
       <h1>dump1090 Real-Time Signal Statistics</h1>
       <div class="menu">&#9776;</div>
     </div>
+    <div class="current-values">
+      <div class="value-item">
+        <strong>Messages/sec (5s):</strong> <span id="currentMsg5s">0</span>
+      </div>
+      <div class="value-item">
+        <strong>Min Signal:</strong> <span id="currentMinSignal">0</span>
+      </div>
+      <div class="value-item">
+        <strong>Max Signal:</strong> <span id="currentMaxSignal">0</span>
+      </div>
+      <div class="value-item">
+        <strong>Min Distance:</strong> <span id="currentMinDistance">0</span>
+      </div>
+      <div class="value-item">
+        <strong>Max Distance:</strong> <span id="currentMaxDistance">0</span>
+      </div>
+    </div>
     <div class="chart-container">
       <div class="chart-item">
         <canvas id="msgChart" width="400" height="200"></canvas>
@@ -99,6 +131,9 @@
       <div class="chart-item">
         <canvas id="minRssiBearingChart" width="400" height="400"></canvas>
       </div>
+      <div class="chart-item">
+        <canvas id="longTermMsgChart" width="400" height="200"></canvas>
+      </div>
     </div>
     <div class="footer">
       &copy; 2025 Clemens Vasters. All rights reserved.
@@ -113,6 +148,7 @@
     const distHistCtx = document.getElementById("distHistChart").getContext("2d");
     const coverageCtx = document.getElementById("coverageChart").getContext("2d");
     const minRssiBearingCtx = document.getElementById("minRssiBearingChart").getContext("2d");
+    const longTermMsgCtx = document.getElementById("longTermMsgChart").getContext("2d");
 
     const msgChart = new Chart(msgCtx, {
       type: "line",
@@ -184,6 +220,84 @@
       options: {
         animation: false,
         scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value) {
+                return value.toFixed(2); // Display tiny value labels
+              }
+            }
+          },
+        },
+        plugins: {
+          datalabels: {
+            display: true,
+            align: 'top',
+            formatter: (value) => value.toFixed(2)
+          }
+        }
+      },
+    });
+
+    const longTermMsgChart = new Chart(longTermMsgCtx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Messages/sec (5m avg)",
+            data: [],
+            borderColor: "rgb(255,99,132)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,99,132)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Messages/sec (15m avg)",
+            data: [],
+            borderColor: "rgb(54,162,235)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(54,162,235)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "Messages/sec (60m avg)",
+            data: [],
+            borderColor: "rgb(75,192,192)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(75,192,192)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+        ],
+      },
+      options: {
+        animation: false,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'minute',
+              stepSize: 60,
+              displayFormats: {
+                minute: 'HH:mm'
+              }
+            },
+            ticks: {
+              maxTicksLimit: 12
+            }
+          },
           y: {
             beginAtZero: true,
             ticks: {
@@ -538,6 +652,8 @@
       },
     });
 
+    let lastUpdateTime = 0;
+
     const ws = new WebSocket(`ws://${window.location.host}/ws`);
     ws.onopen = () => {
       ws.send("ping");
@@ -545,6 +661,14 @@
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       const now = new Date().toLocaleTimeString();
+      const currentTime = new Date().getTime();
+
+      // Update current values
+      document.getElementById("currentMsg5s").textContent = data.msg5s.toFixed(2);
+      document.getElementById("currentMinSignal").textContent = data.sigMin.toFixed(2);
+      document.getElementById("currentMaxSignal").textContent = data.sigMax.toFixed(2);
+      document.getElementById("currentMinDistance").textContent = data.distMin.toFixed(2);
+      document.getElementById("currentMaxDistance").textContent = data.distMax.toFixed(2);
 
       msgChart.data.labels.push(now);
       msgChart.data.datasets[0].data.push(data.msg5s);
@@ -561,6 +685,22 @@
         msgChart.data.datasets[4].data.shift();
       }
       msgChart.update();
+
+      // Update long-term message chart only once per minute
+      if (currentTime - lastUpdateTime >= 60000) {
+        lastUpdateTime = currentTime;
+        longTermMsgChart.data.labels.push(now);
+        longTermMsgChart.data.datasets[0].data.push(data.msg5mAvg);
+        longTermMsgChart.data.datasets[1].data.push(data.msg15mAvg);
+        longTermMsgChart.data.datasets[2].data.push(data.msg60mAvg);
+        if (longTermMsgChart.data.labels.length > 720) { // 12 hours of data
+          longTermMsgChart.data.labels.shift();
+          longTermMsgChart.data.datasets[0].data.shift();
+          longTermMsgChart.data.datasets[1].data.shift();
+          longTermMsgChart.data.datasets[2].data.shift();
+        }
+        longTermMsgChart.update();
+      }
 
       signalChart.data.labels.push(now);
       signalChart.data.datasets[0].data.push(data.sigMin);
