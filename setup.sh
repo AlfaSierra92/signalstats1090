@@ -54,7 +54,7 @@ After=network.target
 [Service]
 User=signalstats1090
 WorkingDirectory=$home_dir
-ExecStart=signalstats1090 run
+ExecStart=$venv_dir/bin/signalstats1090 run
 Restart=always
 
 [Install]
