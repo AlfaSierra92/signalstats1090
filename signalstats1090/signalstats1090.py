@@ -37,11 +37,13 @@ MESSAGE_TIMESTAMPS_60S: Deque[float] = deque()
 MESSAGE_TIMESTAMPS_300S: Deque[float] = deque()
 SIGNAL_LEVELS_30S: Deque[Tuple[float, float]] = deque()
 DISTANCES_30S: Deque[Tuple[float, float]] = deque()
+MIN_RSSI_TIMESTAMPS: Deque[Tuple[float, int, float]] = deque()
 
-REF_LAT: float = 0
-REF_LON: float = 0
-DUMP1090_HOST: str = "localhost"
-DUMP1090_PORT: int = 30005
+ref_lat: float = 51.260765417701066
+ref_lon: float = 6.338479359520795
+
+dump1090_host: str = "localhost"
+dump1090_port: int = 30005
 
 # Global set of connected WebSockets for broadcast.
 CONNECTED_WEBSOCKETS = set()
@@ -54,6 +56,7 @@ RING_DISTANCE = 80
 MAX_DISTANCE = 480
 BEARING_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 COVERAGE_60S = defaultdict(int)
+MIN_RSSI_BY_BEARING = [float('inf')] * BEARING_SEGMENTS
 
 
 def get_current_time() -> float:
@@ -98,6 +101,28 @@ def update_coverage_sliding_window(now: float) -> None:
     keys_to_remove = [key for key, (ts, _) in COVERAGE_60S.items() if ts < now - 60]
     for key in keys_to_remove:
         del COVERAGE_60S[key]
+
+
+def update_min_rssi_by_bearing(bearing: int, rssi: float, now: float) -> None:
+    """
+    Updates the minimum RSSI for a given bearing segment and records the timestamp.
+    """
+    MIN_RSSI_TIMESTAMPS.append((now, bearing, rssi))
+    if rssi < MIN_RSSI_BY_BEARING[bearing]:
+        MIN_RSSI_BY_BEARING[bearing] = rssi
+
+def expire_min_rssi(now: float) -> None:
+    """
+    Expires minimum RSSI values older than 30 seconds.
+    """
+    while MIN_RSSI_TIMESTAMPS and MIN_RSSI_TIMESTAMPS[0][0] < now - 30:
+        _, bearing, rssi = MIN_RSSI_TIMESTAMPS.popleft()
+        if MIN_RSSI_BY_BEARING[bearing] == rssi:
+            # Recompute the minimum RSSI for this bearing
+            MIN_RSSI_BY_BEARING[bearing] = min(
+                (r for t, b, r in MIN_RSSI_TIMESTAMPS if b == bearing),
+                default=float('inf')
+            )
 
 
 def compute_message_rates() -> Tuple[float, float, float, float, float]:
@@ -146,7 +171,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     """
     r = 6371
     d_lat = radians(lat2 - lat1)
-    d_lon = radians(lat2 - lon1)
+    d_lon = radians(lon2 - lon1)
     a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2) ** 2
     return 2 * r * asin(sqrt(a))
 
@@ -163,10 +188,10 @@ def compute_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float
 
 def compute_distance_stats() -> dict:
     """
-    Computes min, max, 25%, 50%, 75% distance over the last 30s.
+    Computes min, max, 25%, 50%, 75%, 90%, 95% distance over the last 30s.
     """
     if not DISTANCES_30S:
-        return {"min":0,"25":0,"50":0,"75":0,"max":0}
+        return {"min":0,"25":0,"50":0,"75":0,"90":0,"95":0,"max":0}
     values = sorted([d[1] for d in DISTANCES_30S])
     def pct(p):
         return statistics.quantiles(values, n=100, method='inclusive')[p-1]
@@ -175,6 +200,8 @@ def compute_distance_stats() -> dict:
         "25": pct(25),
         "50": pct(50),
         "75": pct(75),
+        "90": pct(90),
+        "95": pct(95),
         "max": values[-1]
     }
 
@@ -230,26 +257,28 @@ class ADSBClient(TcpClient):
                     tc = pms.typecode(msg)
                     lat, lon = None, None
                     if 5 <= tc <= 8:
-                        lat, lon = pms.adsb.surface_position_with_ref(msg, REF_LAT, REF_LON)
+                        lat, lon = pms.adsb.surface_position_with_ref(msg, ref_lat, ref_lon)
                     elif 9 <= tc <= 18 or 20 <= tc <= 22:
-                        lat, lon = pms.adsb.airborne_position_with_ref(msg, REF_LAT, REF_LON)
+                        lat, lon = pms.adsb.airborne_position_with_ref(msg, ref_lat, ref_lon)
                     if lat is not None and lon is not None:
-                        dist_km = haversine_distance(REF_LAT, REF_LON, lat, lon)
+                        dist_km = haversine_distance(ref_lat, ref_lon, lat, lon)
                         DISTANCES_30S.append((ts, dist_km))
                         if dist_km <= MAX_DISTANCE:
                             ring = int(dist_km // RING_DISTANCE)
-                            bearing = compute_bearing(REF_LAT, REF_LON, lat, lon)
+                            bearing = compute_bearing(ref_lat, ref_lon, lat, lon)
                             segment = int(bearing // (360 / BEARING_SEGMENTS))
                             key = (ring, segment)
                             if key in COVERAGE_60S:
                                 COVERAGE_60S[key] = (ts, max(COVERAGE_60S[key][1], dist_km))
                             else:
                                 COVERAGE_60S[key] = (ts, dist_km)
+                            update_min_rssi_by_bearing(segment, dbfs_rssi, ts)
 
                 update_message_sliding_windows(ts)
                 update_signal_sliding_window(ts)
                 update_distance_sliding_window(ts)
                 update_coverage_sliding_window(ts)
+                expire_min_rssi(ts)
     
     def run(self, raw_pipe_in=None, stop_flag=None, exception_queue=None):
         self.raw_pipe_in = raw_pipe_in
@@ -384,6 +413,7 @@ async def broadcast_stats_task() -> None:
             dist_stats = compute_distance_stats()
             dist_hist = compute_distance_buckets()
             coverage_stats = compute_coverage_stats()
+            min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
 
         payload = {
             "msg5s": rate_5s,
@@ -404,9 +434,12 @@ async def broadcast_stats_task() -> None:
             "dist25": dist_stats["25"],
             "dist50": dist_stats["50"],
             "dist75": dist_stats["75"],
+            "dist90": dist_stats["90"],
+            "dist95": dist_stats["95"],
             "distMax": dist_stats["max"],
             "distHistogram": dist_hist,
-            "coverageStats": coverage_stats
+            "coverageStats": coverage_stats,
+            "minRssiByBearing": min_rssi_by_bearing
         }
 
         # Broadcast to all connected clients
@@ -424,7 +457,7 @@ async def app_lifespan(app_ref: FastAPI):
     Starts the BEAST listener and stats broadcaster at startup.
     """
     # Start ADSB client instead of beast_listener
-    client = ADSBClient(host=DUMP1090_HOST, port=DUMP1090_PORT, rawtype='beast')
+    client = ADSBClient(host=dump1090_host, port=dump1090_port, rawtype='beast')
     threading.Thread(target=client.run, daemon=True).start()
 
     asyncio.create_task(broadcast_stats_task())
@@ -529,14 +562,16 @@ def main():
             print(f"Failed to write config: {e}")
 
     elif args.command == "run":
-        global REF_LAT, REF_LON
+        global ref_lat, ref_lon
         if args.antenna_lat is None or args.antenna_lon is None:
             parser.error("Must provide --antenna-lat and --antenna-lon or set them via 'config' first.")
-        REF_LAT = args.antenna_lat
-        REF_LON = args.antenna_lon
-        global DUMP1090_HOST, DUMP1090_PORT
-        DUMP1090_HOST = args.dump1090_host
-        DUMP1090_PORT = args.dump1090_port
+        print(f"Starting server on {args.host}:{args.port}")
+        print(f"Using antenna location: {args.antenna_lat}, {args.antenna_lon}")
+        ref_lat = args.antenna_lat
+        ref_lon = args.antenna_lon
+        global dump1090_host, dump1090_port
+        dump1090_host = args.dump1090_host
+        dump1090_port = args.dump1090_port
         uvicorn.run(app, host=args.host, port=args.port)
 
     else:

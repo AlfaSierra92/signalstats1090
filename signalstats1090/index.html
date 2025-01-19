@@ -96,6 +96,9 @@
       <div class="chart-item">
         <canvas id="coverageChart" width="400" height="400"></canvas>
       </div>
+      <div class="chart-item">
+        <canvas id="minRssiBearingChart" width="400" height="400"></canvas>
+      </div>
     </div>
     <div class="footer">
       &copy; 2025 Clemens Vasters. All rights reserved.
@@ -109,6 +112,7 @@
     const distanceCtx = document.getElementById("distanceChart").getContext("2d");
     const distHistCtx = document.getElementById("distHistChart").getContext("2d");
     const coverageCtx = document.getElementById("coverageChart").getContext("2d");
+    const minRssiBearingCtx = document.getElementById("minRssiBearingChart").getContext("2d");
 
     const msgChart = new Chart(msgCtx, {
       type: "line",
@@ -401,6 +405,30 @@
               formatter: (value) => value.toFixed(2)
             }
           },
+          {
+            label: "P90 Dist (30s)",
+            data: [],
+            borderColor: "rgb(255,127,80)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(255,127,80)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
+          {
+            label: "P95 Dist (30s)",
+            data: [],
+            borderColor: "rgb(128,128,128)",
+            tension: 0.1,
+            pointRadius: 3,
+            pointBackgroundColor: "rgb(128,128,128)",
+            pointLabel: {
+              display: true,
+              formatter: (value) => value.toFixed(2)
+            }
+          },
         ],
       },
       options: {
@@ -477,8 +505,34 @@
         scales: {
           r: {
             angleLines: { display: true },
-            suggestedMin: 0,
-            suggestedMax: 480,
+            suggestedMin: 0
+          },
+        },
+      },
+    });
+
+    const minRssiBearingData = {
+      labels: BEARING_LABELS,
+      datasets: [{
+        label: "Min RSSI by Bearing",
+        data: Array(16).fill(0),
+        borderColor: "rgba(255, 99, 132, 0.5)",
+        backgroundColor: "rgba(255, 99, 132, 0.5)",
+        fill: true,
+        borderWidth: 2,
+      }],
+    };
+
+    const minRssiBearingChart = new Chart(minRssiBearingCtx, {
+      type: "radar",
+      data: minRssiBearingData,
+      options: {
+        animation: false,
+        scales: {
+          r: {
+            angleLines: { display: true },
+            max: 0,
+            reverse: true,
           },
         },
       },
@@ -531,6 +585,8 @@
       distanceChart.data.datasets[2].data.push(data.dist50);
       distanceChart.data.datasets[3].data.push(data.dist75);
       distanceChart.data.datasets[4].data.push(data.distMax);
+      distanceChart.data.datasets[5].data.push(data.dist90);
+      distanceChart.data.datasets[6].data.push(data.dist95);
 
       if (distanceChart.data.labels.length > 60) {
         distanceChart.data.labels.shift();
@@ -552,6 +608,10 @@
         });
       });
       coverageChart.update();
+
+      const minRssiByBearing = data.minRssiByBearing;
+      minRssiBearingChart.data.datasets[0].data = minRssiByBearing;
+      minRssiBearingChart.update();
     };
   </script>
 </body>
