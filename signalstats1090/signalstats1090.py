@@ -63,6 +63,8 @@ BEARING_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE",
                   "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 COVERAGE_60S = defaultdict(int)
 MIN_RSSI_BY_BEARING = [0] * BEARING_SEGMENTS
+MIN_RATIO_BY_BEARING = [float(0)] * BEARING_SEGMENTS
+MAX_RATIO_BY_BEARING = [float(0)] * BEARING_SEGMENTS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -304,25 +306,18 @@ def compute_rssi_distance_ratio() -> Tuple[list, list, list]:
     """
     ratio_data = [0] * BEARING_SEGMENTS
     count_data = [0] * BEARING_SEGMENTS
-    min_ratio_data = [float(0)] * BEARING_SEGMENTS
-    max_ratio_data = [float(0)] * BEARING_SEGMENTS
 
     for ts, ratio, lat, lon in DISTANCE_RSSI_RATIO_30S:
         segment = int(compute_bearing(ref_lat, ref_lon, lat, lon) // (360 / BEARING_SEGMENTS))
         ratio_data[segment] += ratio
         count_data[segment] += 1
-        min_ratio_data[segment] = min(min_ratio_data[segment], ratio)
-        max_ratio_data[segment] = max(max_ratio_data[segment], ratio)
 
     # Average the ratios
     for segment in range(BEARING_SEGMENTS):
         if count_data[segment] > 0:
             ratio_data[segment] /= count_data[segment]
-        else:
-            min_ratio_data[segment] = 0
-            max_ratio_data[segment] = 0
 
-    return ratio_data, min_ratio_data, max_ratio_data
+    return ratio_data, MIN_RATIO_BY_BEARING, MAX_RATIO_BY_BEARING
 
 
 class ADSBClient(TcpClient):
@@ -380,6 +375,10 @@ class ADSBClient(TcpClient):
                                 # Compute and store the RSSI/distance ratio along with lat and lon
                                 ratio = abs(dbfs_rssi) / (dist_km if dist_km > 0 else 0.0001)
                                 DISTANCE_RSSI_RATIO_30S.append((ts, ratio, lat, lon))
+
+                                # Update running min and max ratios
+                                MIN_RATIO_BY_BEARING[segment] = min(MIN_RATIO_BY_BEARING[segment], ratio)
+                                MAX_RATIO_BY_BEARING[segment] = max(MAX_RATIO_BY_BEARING[segment], ratio)
 
                     update_message_sliding_windows(ts)
                     update_signal_sliding_window(ts)
@@ -604,10 +603,6 @@ async def broadcast_stats_task() -> None:
                     coverage_stats = compute_coverage_stats()
                     min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
                     ratio_data, min_ratio_data, max_ratio_data = compute_rssi_distance_ratio()
-
-                    avg_5m, avg_15m, avg_60m = compute_long_term_averages()
-
-                    # Update the maximum message rate observed
                     MAX_MESSAGE_RATE = max(MAX_MESSAGE_RATE, rate_5s, rate_15s, rate_30s, rate_60s, rate_300s)
 
                 payload = {
@@ -638,9 +633,6 @@ async def broadcast_stats_task() -> None:
                     "ratioData": ratio_data,
                     "minRatioData": min_ratio_data,
                     "maxRatioData": max_ratio_data,
-                    "msg5mAvg": avg_5m,
-                    "msg15mAvg": avg_15m,
-                    "msg60mAvg": avg_60m,
                     "maxMsgRate": MAX_MESSAGE_RATE
                 }
 
