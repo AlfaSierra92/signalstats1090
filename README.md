@@ -1,6 +1,20 @@
 # dump1090 Real-Time Signal Statistics
 
-This project provides a web application for real-time monitoring of ADS-B messages using `dump1090`. The application consists of a FastAPI backend and a frontend that displays various statistics in real-time using Chart.js.
+This project provides a web application for real-time monitoring of ADS-B messages using `dump1090` to help you with optimizing reception performance. The application computes and displays message rates, signal strength, distance statistics, and coverage statistics. It also provides a radar chart showing the distribution of messages by distance and bearing.
+
+## How to use the dashboard
+
+Once you've installed the dashboard application, you can access it by opening a web browser and navigating to the URL where the application is running. The default URL is `http://localhost:8000`.
+
+You can then tune the gain of your receiver to optimize the reception
+performance. The goal is to maximize the number of messages received while
+keeping the signal strength within a reasonable range. The radar chart shows the
+distribution of messages by distance and bearing, which can help you identify
+areas with poor reception.
+[`dump109-fa`](https://github.com/flightaware/dump1090/blob/master/README.adaptive-gain.md)
+provides a built-in feature to adjust the gain automatically, but you can also
+adjust it manually based on the statistics provided by the dashboard. Also try setting the gain to zero. Once you've modified the gain, restart dump1090 to apply the changes and
+then observe the statistics on the dashboard. Automatic gain adjustment can take several minutes to stabilize, so be patient.
 
 ## Features
 
@@ -10,16 +24,25 @@ This project provides a web application for real-time monitoring of ADS-B messag
 - **Coverage Statistics**: Displays coverage statistics in a radar chart, showing the distribution of messages by distance and bearing.
 - **RSSI/Distance Ratio**: Displays the ratio of RSSI to distance for each bearing segment.
 
+![Screenshot](media/screenshot.jpeg)
+
 ## Quick Start
 
 ### Prerequisites
 
 - `dump1090` running on the same machine or accessible via network.
-- Python 3.10+ installed on your machine. Note: Raspbian typically comes with Python pre-installed.
+- Python 3.10+ installed on your machine. Note: Raspbian typically comes with
+  Python pre-installed.
+- Find out the latitude and longitude of your antenna. You can use Google Maps
+  or similar services to find this information. Mode-S/ADS-B messages only contain
+  partial position information, so the application needs the antenna location to
+  compute the geo-coordinates of aircraft.
 
 ### Installation
 
-1. **Install Python**: If you don't have Python installed, download and install it from [python.org](https://www.python.org/downloads/).
+1. **Install Python**: If you don't have Python installed, download and install it from [python.org](https://www.python.org/downloads/). Raspbian typically comes with Python pre-installed.
+
+> **Note**: If you want to run the application as a service, which is recommended, follow the instructions in the [Installation as a Service](#installation-as-a-service) section.
 
 2. **Install the application**: Open a terminal or command prompt and run:
 
@@ -29,13 +52,39 @@ This project provides a web application for real-time monitoring of ADS-B messag
 
     This will install the `signalstats1090` command-line tool, which you can use to run the backend server.
 
-3. **Run the application**: Execute the following command:
+    On Raspberry Pi, you should install the package into a virtual environment to avoid conflicts with system packages:
+
+    ```bash
+    python3 -m venv signalstats1090
+    source signalstats1090/bin/activate
+    pip install signalstats1090
+    ```  
+
+3. **Run the application**: 
+  
+   Execute the following command:
 
     ```bash
     signalstats1090 run --antenna-lat <antenna_lat> --antenna-lon <antenna_lon>
     ```
 
+    (If you use the virtual environment, make sure to activate it first using the `source signalstats1090/bin/activate` command.)
+
     The `--antenna-lat` and `--antenna-lon` arguments are required. You can find the latitude and longitude of your antenna using Google Maps or similar services.
+
+    If you are running `dump1090` on a different host or port, you can specify the `--dump1090-host` and `--dump1090-port` arguments.
+
+    ```bash
+    signalstats1090 run --antenna-lat <antenna_lat> --antenna-lon <antenna_lon> --dump1090-host <dump1090_host> --dump1090-port <dump1090_port>
+    ```
+
+    If you need to run the web server on a different host or port, you can
+    specify the `--host` and `--port` arguments. The default host is `0.0.0.0`
+    which listens on all interfaces.
+
+    ```bash
+    signalstats1090 run --host <host> --port <port> --antenna-lat <antenna_lat> --antenna-lon <antenna_lon> --dump1090-host <dump1090_host> --dump1090-port <dump1090_port>
+    ```
 
 ### Command Line Arguments
 
