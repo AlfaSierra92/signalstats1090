@@ -41,8 +41,6 @@ install_service() {
     sudo -u signalstats1090 "$venv_dir/bin/pip" install --upgrade pip
     sudo -u signalstats1090 "$venv_dir/bin/pip" install signalstats1090
 
-    
-
     # Write systemd unit
     service_path="/etc/systemd/system/signalstats1090.service"
     service_content=$(
@@ -114,6 +112,20 @@ uninstall_service() {
     echo "Service uninstalled."
 }
 
+# Function to update the service
+update_service() {
+    home_dir="/home/signalstats1090"
+    venv_dir="$home_dir/venv"
+
+    # Upgrade the package to the latest version
+    sudo -u signalstats1090 "$venv_dir/bin/pip" install --upgrade signalstats1090
+
+    # Restart the service
+    sudo systemctl restart signalstats1090.service
+
+    echo "Service updated and restarted."
+}
+
 # Set defaults
 
 HOST="0.0.0.0"
@@ -132,6 +144,7 @@ while [[ "$#" -gt 0 ]]; do
         --dump1090-port) DUMP1090_PORT="$2"; shift ;;
         install) ACTION="install" ;;
         uninstall) ACTION="uninstall" ;;
+        update) ACTION="update" ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -149,10 +162,14 @@ case "$ACTION" in
     uninstall)
         uninstall_service
         ;;
+    update)
+        update_service
+        ;;
     *)
-        echo "Usage: $0 {install|uninstall} --host <host> --port <port> --antenna-lat <antenna_lat> --antenna-lon <antenna_lon> --dump1090-host <dump1090_host> --dump1090-port <dump1090_port>"
+        echo "Usage: $0 {install|uninstall|update} --host <host> --port <port> --antenna-lat <antenna_lat> --antenna-lon <antenna_lon> --dump1090-host <dump1090_host> --dump1090-port <dump1090_port>"
         echo "  install --host <host> --port <port> --antenna-lat <antenna_lat> --antenna-lon <antenna_lon> --dump1090-host <dump1090_host> --dump1090-port <dump1090_port>"
         echo "  uninstall"
+        echo "  update"
         exit 1
         ;;
 esac
