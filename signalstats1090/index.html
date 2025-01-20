@@ -71,6 +71,28 @@
     .chart-item {
       flex: 1 1 45%;
       margin: 10px;
+      padding-top: 80px; /* Add padding to account for title and description */
+      height: 480px; /* Ensure all charts have the same height */
+      position: relative;
+    }
+
+    .chart-title {
+      text-align: center;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 5px;
+      position: absolute;
+      top: 0;
+      width: 100%;
+    }
+
+    .chart-description {
+      text-align: center;
+      font-size: 14px;
+      margin: 10px 0; /* Add margin to prevent chart encroachment */
+      position: absolute;
+      top: 30px;
+      width: 100%;
     }
 
     @media (max-width: 768px) {
@@ -97,46 +119,69 @@
     </div>
     <div class="current-values">
       <div class="value-item">
-        <strong>Messages/sec (5s):</strong> <span id="currentMsg5s">0</span>
+        <strong>Messages/sec (5s):</strong> <br><span id="currentMsg5s">0</span>
       </div>
       <div class="value-item">
-        <strong>Min Signal:</strong> <span id="currentMinSignal">0</span>
+        <strong>Messages/sec (max):</strong><br> <span id="currentMaxMsgRate">0</span>
       </div>
       <div class="value-item">
-        <strong>Max Signal:</strong> <span id="currentMaxSignal">0</span>
+        <strong>Min RSSI:</strong><br> <span id="currentMinSignal">0</span>
       </div>
       <div class="value-item">
-        <strong>Min Distance:</strong> <span id="currentMinDistance">0</span>
+        <strong>Max RSSI:</strong><br> <span id="currentMaxSignal">0</span>
       </div>
       <div class="value-item">
-        <strong>Max Distance:</strong> <span id="currentMaxDistance">0</span>
+        <strong>Min Distance:</strong><br> <span id="currentMinDistance">0</span>
       </div>
+      <div class="value-item">
+        <strong>Max Distance:</strong><br> <span id="currentMaxDistance">0</span>
+      </div>
+      
     </div>
     <div class="chart-container">
       <div class="chart-item">
-        <canvas id="msgChart" width="400" height="200"></canvas>
+        <div class="chart-title">Message Rates</div>
+        <div class="chart-description">This chart shows the message rates over different time intervals. Higher message rates indicate better signal reception.</div>
+        <canvas id="msgChart"></canvas>
       </div>
       <div class="chart-item">
-        <canvas id="signalChart" width="400" height="200"></canvas>
+        <div class="chart-title">Signal Strength</div>
+        <div class="chart-description">This chart displays the minimum, average, and maximum signal strength over the last 30 seconds. Stronger signals result in higher RSSI values.</div>
+        <canvas id="signalChart"></canvas>
       </div>
       <div class="chart-item">
-        <canvas id="distanceChart" width="400" height="200"></canvas>
+        <div class="chart-title">Distance</div>
+        <div class="chart-description">This chart shows the minimum, maximum, and percentile distances of received signals over the last 30 seconds. Greater distances indicate better coverage.</div>
+        <canvas id="distanceChart"></canvas>
       </div>
       <div class="chart-item">
-        <canvas id="distHistChart" width="400" height="200"></canvas>
+        <div class="chart-title">Distance Histogram</div>
+        <div class="chart-description">This chart displays the count of position readings in 30km buckets over the last 30 seconds. It helps identify the distribution of signal distances.</div>
+        <canvas id="distHistChart"></canvas>
       </div>
       <div class="chart-item">
-        <canvas id="coverageChart" width="400" height="400"></canvas>
+        <div class="chart-title">Coverage</div>
+        <div class="chart-description">This radar chart shows the maximum distance read and count of readings in each sector over the last 60 seconds. It helps visualize the coverage area.</div>
+        <canvas id="coverageChart"></canvas>
       </div>
       <div class="chart-item">
-        <canvas id="minRssiBearingChart" width="400" height="400"></canvas>
+        <div class="chart-title">RSSI by Bearing</div>
+        <div class="chart-description">This radar chart displays the minimum RSSI values for each bearing segment. It helps identify the direction of the strongest signals.</div>
+        <canvas id="minRssiBearingChart"></canvas>
       </div>
       <div class="chart-item">
-        <canvas id="longTermMsgChart" width="400" height="200"></canvas>
+        <div class="chart-title">Long-Term Message Rates</div>
+        <div class="chart-description">This chart shows the 5-minute, 15-minute, and 60-minute average message rates. It helps track long-term trends in signal reception.</div>
+        <canvas id="longTermMsgChart"></canvas>
+      </div>
+      <div class="chart-item">
+        <div class="chart-title">RSSI/Distance Ratio</div>
+        <div class="chart-description">This radar chart shows the ratio of RSSI to distance for each bearing segment. It helps identify the efficiency of signal reception over distance.</div>
+        <canvas id="distanceRssiRatioChart"></canvas>
       </div>
     </div>
     <div class="footer">
-      &copy; 2025 Clemens Vasters. All rights reserved.
+      Made by <a href="https://vasters.com">Clemens Vasters</a> with love. Use as you like and at your own risk.
     </div>
   </div>
 
@@ -149,6 +194,30 @@
     const coverageCtx = document.getElementById("coverageChart").getContext("2d");
     const minRssiBearingCtx = document.getElementById("minRssiBearingChart").getContext("2d");
     const longTermMsgCtx = document.getElementById("longTermMsgChart").getContext("2d");
+    const distanceRssiRatioCtx = document.getElementById('distanceRssiRatioChart').getContext('2d');
+
+    const chartOptions = {
+      responsive: true, // Ensure the chart is responsive
+      animation: false, // Disable initial animation
+      maintainAspectRatio: false, // Allow the chart to fill the available space
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function (value) {
+              return value.toFixed(2); // Display tiny value labels
+            }
+          }
+        },
+      },
+      plugins: {
+        datalabels: {
+          display: true,
+          align: 'top',
+          formatter: (value) => value.toFixed(2)
+        }
+      }
+    };
 
     const msgChart = new Chart(msgCtx, {
       type: "line",
@@ -217,27 +286,27 @@
           },
         ],
       },
-      options: {
-        animation: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function (value) {
-                return value.toFixed(2); // Display tiny value labels
-              }
-            }
-          },
-        },
-        plugins: {
-          datalabels: {
-            display: true,
-            align: 'top',
-            formatter: (value) => value.toFixed(2)
-          }
-        }
-      },
+      options: chartOptions,
     });
+
+    // Plugin to show "Collecting Data" text
+    const collectingDataPlugin = {
+      id: 'collectingData',
+      afterDraw: (chart) => {
+        if (chart.data.datasets[0].data.length === 0) {
+          const ctx = chart.ctx;
+          const width = chart.width;
+          const height = chart.height;
+          ctx.save();
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.font = '16px Arial';
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+          ctx.fillText('Collecting Data', width / 2, height / 2);
+          ctx.restore();
+        }
+      }
+    };
 
     const longTermMsgChart = new Chart(longTermMsgCtx, {
       type: "line",
@@ -283,8 +352,9 @@
         ],
       },
       options: {
-        animation: false,
+        ...chartOptions,
         scales: {
+          ...chartOptions.scales,
           x: {
             type: 'time',
             time: {
@@ -297,24 +367,14 @@
             ticks: {
               maxTicksLimit: 12
             }
-          },
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function (value) {
-                return value.toFixed(2); // Display tiny value labels
-              }
-            }
-          },
+          }
         },
         plugins: {
-          datalabels: {
-            display: true,
-            align: 'top',
-            formatter: (value) => value.toFixed(2)
-          }
+          ...chartOptions.plugins,
+          collectingData: {} // Enable the collectingData plugin
         }
       },
+      plugins: [collectingDataPlugin]
     });
 
     const signalChart = new Chart(signalCtx, {
@@ -323,7 +383,7 @@
         labels: [],
         datasets: [
           {
-            label: "Min Signal (30s)",
+            label: "Min RSSI (30s)",
             data: [],
             borderColor: "rgb(255,99,132)",
             tension: 0.1,
@@ -335,7 +395,7 @@
             }
           },
           {
-            label: "Avg Signal (30s)",
+            label: "Avg RSSI (30s)",
             data: [],
             borderColor: "rgb(54,162,235)",
             tension: 0.1,
@@ -347,7 +407,7 @@
             }
           },
           {
-            label: "Max Signal (30s)",
+            label: "Max RSSI (30s)",
             data: [],
             borderColor: "rgb(255,206,86)",
             tension: 0.1,
@@ -432,26 +492,7 @@
           },
         ],
       },
-      options: {
-        animation: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function (value) {
-                return value.toFixed(2); // Display tiny value labels
-              }
-            }
-          },
-        },
-        plugins: {
-          datalabels: {
-            display: true,
-            align: 'top',
-            formatter: (value) => value.toFixed(2)
-          }
-        }
-      },
+      options: chartOptions,
     });
 
     const distanceChart = new Chart(distanceCtx, {
@@ -545,26 +586,7 @@
           },
         ],
       },
-      options: {
-        animation: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function (value) {
-                return value.toFixed(2); // Display tiny value labels
-              }
-            }
-          },
-        },
-        plugins: {
-          datalabels: {
-            display: true,
-            align: 'top',
-            formatter: (value) => value.toFixed(2)
-          }
-        }
-      },
+      options: chartOptions,
     });
 
     const distLabels = ["0-30", "30-60", "60-90", "90-120", "120-150", "150-180", "180-210", "210-240", "240-270", "270+"];
@@ -583,7 +605,8 @@
         ],
       },
       options: {
-        animation: false,
+        animation: true,
+        maintainAspectRatio: false, // Allow the chart to fill the available space
         scales: {
           y: { beginAtZero: true },
         },
@@ -605,7 +628,7 @@
         label: `${i * 80}-${(i + 1) * 80} km`,
         data: Array(16).fill(0),
         borderColor: coverageColors[i],
-        backgroundColor: Array(16).fill(coverageColors[i]),
+        backgroundColor: coverageColors[i], // Match background color to border color
         fill: true,
         borderWidth: 2,
       })),
@@ -615,7 +638,7 @@
       type: "radar",
       data: coverageData,
       options: {
-        animation: false,
+        animation: true,
         scales: {
           r: {
             angleLines: { display: true },
@@ -628,7 +651,7 @@
     const minRssiBearingData = {
       labels: BEARING_LABELS,
       datasets: [{
-        label: "Min RSSI by Bearing",
+        label: "RSSI by Bearing",
         data: Array(16).fill(0),
         borderColor: "rgba(255, 99, 132, 0.5)",
         backgroundColor: "rgba(255, 99, 132, 0.5)",
@@ -641,12 +664,56 @@
       type: "radar",
       data: minRssiBearingData,
       options: {
-        animation: false,
+        animation: true,
         scales: {
           r: {
             angleLines: { display: true },
             max: 0,
             reverse: true,
+          },
+        },
+      },
+    });
+
+    const distanceRssiRatioData = {
+      labels: BEARING_LABELS,
+      datasets: [
+        {
+          label: "RSSI/Distance Ratio",
+          data: Array(16).fill(0),
+          borderColor: "rgba(75, 192, 192, 0.5)",
+          backgroundColor: "rgba(75, 192, 192, 0.5)",
+          fill: true,
+          borderWidth: 2,
+        },
+        {
+          label: "Min RSSI/Distance Ratio",
+          data: Array(16).fill(0),
+          borderColor: "rgba(255, 99, 132, 0.5)",
+          backgroundColor: "rgba(255, 99, 132, 0.5)",
+          fill: true,
+          borderWidth: 2,
+        },
+        {
+          label: "Max RSSI/Distance Ratio",
+          data: Array(16).fill(0),
+          borderColor: "rgba(54, 162, 235, 0.5)",
+          backgroundColor: "rgba(54, 162, 235, 0.5)",
+          fill: true,
+          borderWidth: 2,
+        }
+      ],
+    };
+
+    const distanceRssiRatioChart = new Chart(distanceRssiRatioCtx, {
+      type: "radar",
+      data: distanceRssiRatioData,
+      options: {
+        animation: true,
+        scales: {
+          r: {
+            angleLines: { display: true },
+            suggestedMin: 0
           },
         },
       },
@@ -659,99 +726,119 @@
       ws.send("ping");
     };
     ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const now = new Date().toLocaleTimeString();
-      const currentTime = new Date().getTime();
+      const cloudEvent = JSON.parse(event.data);
+      if (cloudEvent.type === "com.vasters.signalstats1090.secondUpdate") {
+        const data = cloudEvent.data;
+        const now = new Date().toLocaleTimeString();
+        const currentTime = new Date().getTime();
 
-      // Update current values
-      document.getElementById("currentMsg5s").textContent = data.msg5s.toFixed(2);
-      document.getElementById("currentMinSignal").textContent = data.sigMin.toFixed(2);
-      document.getElementById("currentMaxSignal").textContent = data.sigMax.toFixed(2);
-      document.getElementById("currentMinDistance").textContent = data.distMin.toFixed(2);
-      document.getElementById("currentMaxDistance").textContent = data.distMax.toFixed(2);
+        // Update current values
+        document.getElementById("currentMsg5s").textContent = data.msg5s.toFixed(2);
+        document.getElementById("currentMinSignal").textContent = data.sigMin.toFixed(2);
+        document.getElementById("currentMaxSignal").textContent = data.sigMax.toFixed(2);
+        document.getElementById("currentMinDistance").textContent = data.distMin.toFixed(2);
+        document.getElementById("currentMaxDistance").textContent = data.distMax.toFixed(2);
+        document.getElementById("currentMaxMsgRate").textContent = data.maxMsgRate.toFixed(2);
 
-      msgChart.data.labels.push(now);
-      msgChart.data.datasets[0].data.push(data.msg5s);
-      msgChart.data.datasets[1].data.push(data.msg15s);
-      msgChart.data.datasets[2].data.push(data.msg30s);
-      msgChart.data.datasets[3].data.push(data.msg60s);
-      msgChart.data.datasets[4].data.push(data.msg300s);
-      if (msgChart.data.labels.length > 60) {
-        msgChart.data.labels.shift();
-        msgChart.data.datasets[0].data.shift();
-        msgChart.data.datasets[1].data.shift();
-        msgChart.data.datasets[2].data.shift();
-        msgChart.data.datasets[3].data.shift();
-        msgChart.data.datasets[4].data.shift();
-      }
-      msgChart.update();
-
-      // Update long-term message chart only once per minute
-      if (currentTime - lastUpdateTime >= 60000) {
-        lastUpdateTime = currentTime;
-        longTermMsgChart.data.labels.push(now);
-        longTermMsgChart.data.datasets[0].data.push(data.msg5mAvg);
-        longTermMsgChart.data.datasets[1].data.push(data.msg15mAvg);
-        longTermMsgChart.data.datasets[2].data.push(data.msg60mAvg);
-        if (longTermMsgChart.data.labels.length > 720) { // 12 hours of data
-          longTermMsgChart.data.labels.shift();
-          longTermMsgChart.data.datasets[0].data.shift();
-          longTermMsgChart.data.datasets[1].data.shift();
-          longTermMsgChart.data.datasets[2].data.shift();
+        msgChart.data.labels.push(now);
+        msgChart.data.datasets[0].data.push(data.msg5s);
+        msgChart.data.datasets[1].data.push(data.msg15s);
+        msgChart.data.datasets[2].data.push(data.msg30s);
+        msgChart.data.datasets[3].data.push(data.msg60s);
+        msgChart.data.datasets[4].data.push(data.msg300s);
+        if (msgChart.data.labels.length > 60) {
+          msgChart.data.labels.shift();
+          msgChart.data.datasets[0].data.shift();
+          msgChart.data.datasets[1].data.shift();
+          msgChart.data.datasets[2].data.shift();
+          msgChart.data.datasets[3].data.shift();
+          msgChart.data.datasets[4].data.shift();
         }
-        longTermMsgChart.update();
-      }
+        msgChart.update();
 
-      signalChart.data.labels.push(now);
-      signalChart.data.datasets[0].data.push(data.sigMin);
-      signalChart.data.datasets[1].data.push(data.sigAvg);
-      signalChart.data.datasets[2].data.push(data.sigMax);
-      signalChart.data.datasets[3].data.push(data.sig25);
-      signalChart.data.datasets[4].data.push(data.sig50);
-      signalChart.data.datasets[5].data.push(data.sig75);
-      signalChart.data.datasets[6].data.push(data.sig90);
-      signalChart.data.datasets[7].data.push(data.sig95);
-      signalChart.data.datasets[8].data.push(data.sig99);
+        signalChart.data.labels.push(now);
+        signalChart.data.datasets[0].data.push(data.sigMin);
+        signalChart.data.datasets[1].data.push(data.sigAvg);
+        signalChart.data.datasets[2].data.push(data.sigMax);
+        signalChart.data.datasets[3].data.push(data.sig25);
+        signalChart.data.datasets[4].data.push(data.sig50);
+        signalChart.data.datasets[5].data.push(data.sig75);
+        signalChart.data.datasets[6].data.push(data.sig90);
+        signalChart.data.datasets[7].data.push(data.sig95);
+        signalChart.data.datasets[8].data.push(data.sig99);
 
-      if (signalChart.data.labels.length > 60) {
-        signalChart.data.labels.shift();
-        signalChart.data.datasets.forEach(ds => ds.data.shift());
-      }
-      signalChart.update();
+        if (signalChart.data.labels.length > 60) {
+          signalChart.data.labels.shift();
+          signalChart.data.datasets.forEach(ds => ds.data.shift());
+        }
+        signalChart.update();
 
-      distanceChart.data.labels.push(now);
-      distanceChart.data.datasets[0].data.push(data.distMin);
-      distanceChart.data.datasets[1].data.push(data.dist25);
-      distanceChart.data.datasets[2].data.push(data.dist50);
-      distanceChart.data.datasets[3].data.push(data.dist75);
-      distanceChart.data.datasets[4].data.push(data.distMax);
-      distanceChart.data.datasets[5].data.push(data.dist90);
-      distanceChart.data.datasets[6].data.push(data.dist95);
+        distanceChart.data.labels.push(now);
+        distanceChart.data.datasets[0].data.push(data.distMin);
+        distanceChart.data.datasets[1].data.push(data.dist25);
+        distanceChart.data.datasets[2].data.push(data.dist50);
+        distanceChart.data.datasets[3].data.push(data.dist75);
+        distanceChart.data.datasets[4].data.push(data.distMax);
+        distanceChart.data.datasets[5].data.push(data.dist90);
+        distanceChart.data.datasets[6].data.push(data.dist95);
 
-      if (distanceChart.data.labels.length > 60) {
-        distanceChart.data.labels.shift();
-        distanceChart.data.datasets.forEach(ds => ds.data.shift());
-      }
-      distanceChart.update();
+        if (distanceChart.data.labels.length > 60) {
+          distanceChart.data.labels.shift();
+          distanceChart.data.datasets.forEach(ds => ds.data.shift());
+        }
+        distanceChart.update();
 
-      distHistChart.data.labels = distLabels;
-      distHistChart.data.datasets[0].data = data.distHistogram;
-      distHistChart.update();
+        distHistChart.data.labels = distLabels;
+        distHistChart.data.datasets[0].data = data.distHistogram;
+        distHistChart.update();
 
-      const coverageStats = data.coverageStats;
-      coverageStats.forEach((ringData, ringIndex) => {
-        ringData.forEach(([dist, count], segmentIndex) => {
-          coverageChart.data.datasets[ringIndex].data[segmentIndex] = dist;
-          const alpha = Math.min(0.1 + count * 0.1, 1.0);
-          const baseColor = coverageColors[ringIndex].slice(5, -4);
-          coverageChart.data.datasets[ringIndex].backgroundColor[segmentIndex] = `rgba(${baseColor}, ${alpha})`;
+        const coverageStats = data.coverageStats;
+        coverageStats.forEach((ringData, ringIndex) => {
+          ringData.forEach(([dist, count], segmentIndex) => {
+            coverageChart.data.datasets[ringIndex].data[segmentIndex] = dist;
+            const alpha = Math.min(0.1 + count * 0.1, 1.0);
+            const baseColor = coverageColors[ringIndex].slice(5, -4);
+            coverageChart.data.datasets[ringIndex].backgroundColor[segmentIndex] = `rgba(${baseColor}, ${alpha})`;
+          });
         });
-      });
-      coverageChart.update();
+        coverageChart.update();
 
-      const minRssiByBearing = data.minRssiByBearing;
-      minRssiBearingChart.data.datasets[0].data = minRssiByBearing;
-      minRssiBearingChart.update();
+        const minRssiByBearing = data.minRssiByBearing;
+        minRssiBearingChart.data.datasets[0].data = minRssiByBearing;
+        minRssiBearingChart.update();
+
+        const ratioData = data.ratioData;
+        const minRatioData = data.minRatioData;
+        const maxRatioData = data.maxRatioData;
+        distanceRssiRatioData.datasets[0].data = ratioData;
+        distanceRssiRatioData.datasets[1].data = minRatioData;
+        distanceRssiRatioData.datasets[2].data = maxRatioData;
+        distanceRssiRatioChart.update();
+
+        longTermMsgChart.update();
+      } else if (cloudEvent.type === "com.vasters.signalstats1090.minuteUpdate") {
+        const data = cloudEvent.data;
+        const eventTime = new Date(cloudEvent.time);
+
+        // Update long-term message chart only once per minute
+        if (eventTime.getTime() - lastUpdateTime >= 60000) {
+          lastUpdateTime = eventTime.getTime();
+          longTermMsgChart.data.labels.push(eventTime);
+          longTermMsgChart.data.datasets[0].data.push(data.msg5mAvg);
+          longTermMsgChart.data.datasets[1].data.push(data.msg15mAvg);
+          longTermMsgChart.data.datasets[2].data.push(data.msg60mAvg);
+          if (longTermMsgChart.data.labels.length > 720) { // 12 hours of data
+            longTermMsgChart.data.labels.shift();
+            longTermMsgChart.data.datasets[0].data.shift();
+            longTermMsgChart.data.datasets[1].data.shift();
+            longTermMsgChart.data.datasets[2].data.shift();
+          }
+          longTermMsgChart.update();
+        }
+
+        // Update current values
+        document.getElementById("currentMaxMsgRate").textContent = data.maxMsgRate.toFixed(2);
+      }
     };
   </script>
 </body>

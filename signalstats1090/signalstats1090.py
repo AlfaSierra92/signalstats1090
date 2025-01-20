@@ -8,27 +8,30 @@
 # once the frontend attempts to connect. To confirm, we log when a new
 # client connects or disconnects, and we send a "ping" from the client.
 
-import math
-import time
-import socket
-import threading
-from collections import deque, defaultdict
-from typing import Deque, Tuple, AsyncGenerator
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-import uvicorn
-import asyncio
-import pyModeS as pms
-from pyModeS.extra.tcpclient import TcpClient
-import statistics
-from math import radians, sin, cos, asin, sqrt, degrees, atan2
-import json
 import argparse
-import os
+import asyncio
 import contextlib
+import json
+import logging
+import math
+import os
+import socket
+import statistics
 import subprocess
 import sys
-import logging
+import threading
+import time
+import uuid
+import datetime
+from collections import defaultdict, deque
+from math import asin, atan2, cos, degrees, radians, sin, sqrt
+from typing import AsyncGenerator, Deque, Tuple
+
+import pyModeS as pms
+import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from pyModeS.extra.tcpclient import TcpClient
 
 # Global deques for timestamps and signal levels in rolling windows.
 MESSAGE_TIMESTAMPS_5S: Deque[float] = deque()
@@ -39,6 +42,7 @@ MESSAGE_TIMESTAMPS_300S: Deque[float] = deque()
 SIGNAL_LEVELS_30S: Deque[Tuple[float, float]] = deque()
 DISTANCES_30S: Deque[Tuple[float, float]] = deque()
 MIN_RSSI_TIMESTAMPS: Deque[Tuple[float, int, float]] = deque()
+DISTANCE_RSSI_RATIO_30S: Deque[Tuple[float, float, float, float]] = deque()  # (timestamp, ratio, lat, lon)
 
 ref_lat: float = 51.260765417701066
 ref_lon: float = 6.338479359520795
@@ -55,7 +59,8 @@ DATA_LOCK = threading.Lock()
 BEARING_SEGMENTS = 16
 RING_DISTANCE = 80
 MAX_DISTANCE = 480
-BEARING_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+BEARING_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE",
+                  "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 COVERAGE_60S = defaultdict(int)
 MIN_RSSI_BY_BEARING = [0] * BEARING_SEGMENTS
 
@@ -65,6 +70,13 @@ logger = logging.getLogger(__name__)
 
 LONG_TERM_MSG_RATES: Deque[float] = deque()
 LONG_TERM_MSG_TIMESTAMPS: Deque[float] = deque()
+
+# Cache for the last 120 minutes of long-term message rates
+LONG_TERM_CACHE: Deque[dict] = deque(maxlen=120)
+
+# Global variable to store the maximum message rate observed
+MAX_MESSAGE_RATE = 0.0
+
 
 def get_current_time() -> float:
     """
@@ -105,7 +117,8 @@ def update_distance_sliding_window(now: float) -> None:
 
 def update_coverage_sliding_window(now: float) -> None:
     """Removes coverage entries older than 60s."""
-    keys_to_remove = [key for key, (ts, _) in COVERAGE_60S.items() if ts < now - 60]
+    keys_to_remove = [key for key,
+                      (ts, _) in COVERAGE_60S.items() if ts < now - 60]
     for key in keys_to_remove:
         del COVERAGE_60S[key]
 
@@ -118,6 +131,7 @@ def update_min_rssi_by_bearing(bearing: int, rssi: float, now: float) -> None:
     if rssi < MIN_RSSI_BY_BEARING[bearing]:
         MIN_RSSI_BY_BEARING[bearing] = rssi
 
+
 def expire_min_rssi(now: float) -> None:
     """
     Expires minimum RSSI values older than 30 seconds.
@@ -128,7 +142,7 @@ def expire_min_rssi(now: float) -> None:
             # Recompute the minimum RSSI for this bearing
             MIN_RSSI_BY_BEARING[bearing] = min(
                 (r for t, b, r in MIN_RSSI_TIMESTAMPS if b == bearing),
-                default=float('inf')
+                default=float(0)
             )
 
 
@@ -136,11 +150,16 @@ def compute_message_rates() -> Tuple[float, float, float, float, float]:
     """
     Computes average message rates for 5s, 15s, 30s, 60s, and 300s windows.
     """
-    rate_5s = len(MESSAGE_TIMESTAMPS_5S) / 5.0 if MESSAGE_TIMESTAMPS_5S else 0.0
-    rate_15s = len(MESSAGE_TIMESTAMPS_15S) / 15.0 if MESSAGE_TIMESTAMPS_15S else 0.0
-    rate_30s = len(MESSAGE_TIMESTAMPS_30S) / 30.0 if MESSAGE_TIMESTAMPS_30S else 0.0
-    rate_60s = len(MESSAGE_TIMESTAMPS_60S) / 60.0 if MESSAGE_TIMESTAMPS_60S else 0.0
-    rate_300s = len(MESSAGE_TIMESTAMPS_300S) / 300.0 if MESSAGE_TIMESTAMPS_300S else 0.0
+    rate_5s = len(MESSAGE_TIMESTAMPS_5S) / \
+        5.0 if MESSAGE_TIMESTAMPS_5S else 0.0
+    rate_15s = len(MESSAGE_TIMESTAMPS_15S) / \
+        15.0 if MESSAGE_TIMESTAMPS_15S else 0.0
+    rate_30s = len(MESSAGE_TIMESTAMPS_30S) / \
+        30.0 if MESSAGE_TIMESTAMPS_30S else 0.0
+    rate_60s = len(MESSAGE_TIMESTAMPS_60S) / \
+        60.0 if MESSAGE_TIMESTAMPS_60S else 0.0
+    rate_300s = len(MESSAGE_TIMESTAMPS_300S) / \
+        300.0 if MESSAGE_TIMESTAMPS_300S else 0.0
     return (rate_5s, rate_15s, rate_30s, rate_60s, rate_300s)
 
 
@@ -159,9 +178,12 @@ def compute_signal_percentiles() -> dict:
     Computes selected percentiles of signal level over the last 30s.
     """
     if not SIGNAL_LEVELS_30S:
-        return {"25":0,"50":0,"75":0,"90":0,"95":0,"99":0}
+        return {"25": 0, "50": 0, "75": 0, "90": 0, "95": 0, "99": 0}
     values = sorted([v[1] for v in SIGNAL_LEVELS_30S])
-    def pct(p): return statistics.quantiles(values, n=100, method='inclusive')[p-1]
+    
+    def pct(p):
+        return statistics.quantiles(values, n=100, method='inclusive')[p-1]
+    
     return {
         "25": pct(25),
         "50": pct(50),
@@ -179,7 +201,8 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     r = 6371
     d_lat = radians(lat2 - lat1)
     d_lon = radians(lon2 - lon1)
-    a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2) ** 2
+    a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * \
+        cos(radians(lat2)) * sin(d_lon / 2) ** 2
     return 2 * r * asin(sqrt(a))
 
 
@@ -189,7 +212,8 @@ def compute_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float
     """
     d_lon = radians(lon2 - lon1)
     y = sin(d_lon) * cos(radians(lat2))
-    x = cos(radians(lat1)) * sin(radians(lat2)) - sin(radians(lat1)) * cos(radians(lat2)) * cos(d_lon)
+    x = cos(radians(lat1)) * sin(radians(lat2)) - \
+        sin(radians(lat1)) * cos(radians(lat2)) * cos(d_lon)
     return (degrees(atan2(y, x)) + 360) % 360
 
 
@@ -198,8 +222,9 @@ def compute_distance_stats() -> dict:
     Computes min, max, 25%, 50%, 75%, 90%, 95% distance over the last 30s.
     """
     if not DISTANCES_30S:
-        return {"min":0,"25":0,"50":0,"75":0,"90":0,"95":0,"max":0}
+        return {"min": 0, "25": 0, "50": 0, "75": 0, "90": 0, "95": 0, "max": 0}
     values = sorted([d[1] for d in DISTANCES_30S])
+
     def pct(p):
         return statistics.quantiles(values, n=100, method='inclusive')[p-1]
     return {
@@ -230,11 +255,13 @@ def compute_coverage_stats() -> list:
     """
     Computes the maximum distance read and count of readings in each sector over the last 60s.
     """
-    coverage = [[(0, 0)] * BEARING_SEGMENTS for _ in range(MAX_DISTANCE // RING_DISTANCE)]
+    coverage = [
+        [(0, 0)] * BEARING_SEGMENTS for _ in range(MAX_DISTANCE // RING_DISTANCE)]
     for (ring, segment), (ts, dist) in COVERAGE_60S.items():
         max_dist, count = coverage[ring][segment]
         coverage[ring][segment] = (max(max_dist, dist), count + 1)
     return coverage
+
 
 def update_long_term_msg_rates(rate_60s: float, now: float) -> None:
     """
@@ -246,24 +273,57 @@ def update_long_term_msg_rates(rate_60s: float, now: float) -> None:
         LONG_TERM_MSG_RATES.popleft()
         LONG_TERM_MSG_TIMESTAMPS.popleft()
 
+
 def compute_long_term_averages() -> Tuple[float, float, float]:
     """
     Computes 5m, 15m, and 60m averages from the long-term message rates.
     """
     if not LONG_TERM_MSG_RATES:
-        rate_5s = len(MESSAGE_TIMESTAMPS_5S) / 5.0 if MESSAGE_TIMESTAMPS_5S else 0.0
+        rate_5s = len(MESSAGE_TIMESTAMPS_5S) / \
+            5.0 if MESSAGE_TIMESTAMPS_5S else 0.0
         return (rate_5s, rate_5s, rate_5s)
-    
+
     now = get_current_time()
-    rates_5m = [rate for ts, rate in zip(LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 300]
-    rates_15m = [rate for ts, rate in zip(LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 900]
-    rates_60m = [rate for ts, rate in zip(LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 3600]
+    rates_5m = [rate for ts, rate in zip(
+        LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 300]
+    rates_15m = [rate for ts, rate in zip(
+        LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 900]
+    rates_60m = [rate for ts, rate in zip(
+        LONG_TERM_MSG_TIMESTAMPS, LONG_TERM_MSG_RATES) if ts >= now - 3600]
 
     avg_5m = sum(rates_5m) / len(rates_5m) if rates_5m else 0.0
     avg_15m = sum(rates_15m) / len(rates_15m) if rates_15m else 0.0
     avg_60m = sum(rates_60m) / len(rates_60m) if rates_60m else 0.0
 
     return (avg_5m, avg_15m, avg_60m)
+
+
+def compute_rssi_distance_ratio() -> Tuple[list, list, list]:
+    """
+    Computes the ratio of RSSI to distance for each segment and bearing.
+    """
+    ratio_data = [0] * BEARING_SEGMENTS
+    count_data = [0] * BEARING_SEGMENTS
+    min_ratio_data = [float(0)] * BEARING_SEGMENTS
+    max_ratio_data = [float(0)] * BEARING_SEGMENTS
+
+    for ts, ratio, lat, lon in DISTANCE_RSSI_RATIO_30S:
+        segment = int(compute_bearing(ref_lat, ref_lon, lat, lon) // (360 / BEARING_SEGMENTS))
+        ratio_data[segment] += ratio
+        count_data[segment] += 1
+        min_ratio_data[segment] = min(min_ratio_data[segment], ratio)
+        max_ratio_data[segment] = max(max_ratio_data[segment], ratio)
+
+    # Average the ratios
+    for segment in range(BEARING_SEGMENTS):
+        if count_data[segment] > 0:
+            ratio_data[segment] /= count_data[segment]
+        else:
+            min_ratio_data[segment] = 0
+            max_ratio_data[segment] = 0
+
+    return ratio_data, min_ratio_data, max_ratio_data
+
 
 class ADSBClient(TcpClient):
     """
@@ -293,22 +353,33 @@ class ADSBClient(TcpClient):
                         tc = pms.typecode(msg)
                         lat, lon = None, None
                         if 5 <= tc <= 8:
-                            lat, lon = pms.adsb.surface_position_with_ref(msg, ref_lat, ref_lon)
+                            lat, lon = pms.adsb.surface_position_with_ref(
+                                msg, ref_lat, ref_lon)
                         elif 9 <= tc <= 18 or 20 <= tc <= 22:
-                            lat, lon = pms.adsb.airborne_position_with_ref(msg, ref_lat, ref_lon)
+                            lat, lon = pms.adsb.airborne_position_with_ref(
+                                msg, ref_lat, ref_lon)
                         if lat is not None and lon is not None:
-                            dist_km = haversine_distance(ref_lat, ref_lon, lat, lon)
+                            dist_km = haversine_distance(
+                                ref_lat, ref_lon, lat, lon)
                             DISTANCES_30S.append((ts, dist_km))
                             if dist_km <= MAX_DISTANCE:
                                 ring = int(dist_km // RING_DISTANCE)
-                                bearing = compute_bearing(ref_lat, ref_lon, lat, lon)
-                                segment = int(bearing // (360 / BEARING_SEGMENTS))
+                                bearing = compute_bearing(
+                                    ref_lat, ref_lon, lat, lon)
+                                segment = int(
+                                    bearing // (360 / BEARING_SEGMENTS))
                                 key = (ring, segment)
                                 if key in COVERAGE_60S:
-                                    COVERAGE_60S[key] = (ts, max(COVERAGE_60S[key][1], dist_km))
+                                    COVERAGE_60S[key] = (
+                                        ts, max(COVERAGE_60S[key][1], dist_km))
                                 else:
                                     COVERAGE_60S[key] = (ts, dist_km)
-                                update_min_rssi_by_bearing(segment, dbfs_rssi, ts)
+                                update_min_rssi_by_bearing(
+                                    segment, dbfs_rssi, ts)
+
+                                # Compute and store the RSSI/distance ratio along with lat and lon
+                                ratio = abs(dbfs_rssi) / (dist_km if dist_km > 0 else 0.0001)
+                                DISTANCE_RSSI_RATIO_30S.append((ts, ratio, lat, lon))
 
                     update_message_sliding_windows(ts)
                     update_signal_sliding_window(ts)
@@ -317,7 +388,7 @@ class ADSBClient(TcpClient):
                     expire_min_rssi(ts)
         except Exception as e:
             logger.error("Error handling messages", exc_info=True)
-    
+
     def run(self, raw_pipe_in=None, stop_flag=None, exception_queue=None):
         self.raw_pipe_in = raw_pipe_in
         self.exception_queue = exception_queue
@@ -362,7 +433,7 @@ class ADSBClient(TcpClient):
             # then, reset the self.buffer with the remainder
 
             while i < len(self.buffer):
-                if self.buffer[i : i + 2] == [0x1A, 0x1A]:
+                if self.buffer[i: i + 2] == [0x1A, 0x1A]:
                     msg.append(0x1A)
                     i += 1
                 elif (i == len(self.buffer) - 1) and (self.buffer[i] == 0x1A):
@@ -420,13 +491,14 @@ class ADSBClient(TcpClient):
                 '''
                 try:
                     df = pms.df(msg)
-                    raw_rssi = mm[7] # eighth byte of Mode-S message should contain RSSI value
+                    # eighth byte of Mode-S message should contain RSSI value
+                    raw_rssi = mm[7]
                     if raw_rssi == 0:
                         dbfs_rssi = -100
                     else:
-                        rssi_ratio = raw_rssi / 255 
-                        signalLevel = rssi_ratio ** 2 
-                        dbfs_rssi = 10 * math.log10(signalLevel) 
+                        rssi_ratio = raw_rssi / 255
+                        signalLevel = rssi_ratio ** 2
+                        dbfs_rssi = 10 * math.log10(signalLevel)
                 except Exception as e:
                     logger.error("Error processing RSSI", exc_info=True)
                     continue
@@ -449,58 +521,142 @@ async def broadcast_stats_task() -> None:
     Async background task that periodically computes and broadcasts stats
     without relying on get_event_loop() in a synchronous thread.
     """
+    last_minute_update_time = 0.0
+    global MAX_MESSAGE_RATE
     while True:
         await asyncio.sleep(1.0)
         try:
-            with DATA_LOCK:
-                rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
-                sig_min, sig_max, sig_avg = compute_signal_stats()
-                sig_p = compute_signal_percentiles()
-                dist_stats = compute_distance_stats()
-                dist_hist = compute_distance_buckets()
-                coverage_stats = compute_coverage_stats()
-                min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
+            now = get_current_time()
+            if now - last_minute_update_time >= 60.0:
+                # Minute update
+                last_minute_update_time = now
+                with DATA_LOCK:
+                    rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
+                    sig_min, sig_max, sig_avg = compute_signal_stats()
+                    sig_p = compute_signal_percentiles()
+                    dist_stats = compute_distance_stats()
+                    dist_hist = compute_distance_buckets()
+                    coverage_stats = compute_coverage_stats()
+                    min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
+                    ratio_data, min_ratio_data, max_ratio_data = compute_rssi_distance_ratio()
 
-                # Update long-term message rates every minute
-                if int(get_current_time()) % 60 == 0:
+                    # Update long-term message rates every minute
                     update_long_term_msg_rates(rate_60s, get_current_time())
 
-                avg_5m, avg_15m, avg_60m = compute_long_term_averages()
+                    avg_5m, avg_15m, avg_60m = compute_long_term_averages()
 
-            payload = {
-                "msg5s": rate_5s,
-                "msg15s": rate_15s,
-                "msg30s": rate_30s,
-                "msg60s": rate_60s,
-                "msg300s": rate_300s,
-                "sigMin": sig_min,
-                "sigMax": sig_max,
-                "sigAvg": sig_avg,
-                "sig25": sig_p["25"],
-                "sig50": sig_p["50"],
-                "sig75": sig_p["75"],
-                "sig90": sig_p["90"],
-                "sig95": sig_p["95"],
-                "sig99": sig_p["99"],
-                "distMin": dist_stats["min"],
-                "dist25": dist_stats["25"],
-                "dist50": dist_stats["50"],
-                "dist75": dist_stats["75"],
-                "dist90": dist_stats["90"],
-                "dist95": dist_stats["95"],
-                "distMax": dist_stats["max"],
-                "distHistogram": dist_hist,
-                "coverageStats": coverage_stats,
-                "minRssiByBearing": min_rssi_by_bearing,
-                "msg5mAvg": avg_5m,
-                "msg15mAvg": avg_15m,
-                "msg60mAvg": avg_60m
-            }
+                    # Update the maximum message rate observed
+                    MAX_MESSAGE_RATE = max(MAX_MESSAGE_RATE, rate_5s, rate_15s, rate_30s, rate_60s, rate_300s)
+
+                payload = {
+                    "msg5s": rate_5s,
+                    "msg15s": rate_15s,
+                    "msg30s": rate_30s,
+                    "msg60s": rate_60s,
+                    "msg300s": rate_300s,
+                    "sigMin": sig_min,
+                    "sigMax": sig_max,
+                    "sigAvg": sig_avg,
+                    "sig25": sig_p["25"],
+                    "sig50": sig_p["50"],
+                    "sig75": sig_p["75"],
+                    "sig90": sig_p["90"],
+                    "sig95": sig_p["95"],
+                    "sig99": sig_p["99"],
+                    "distMin": dist_stats["min"],
+                    "dist25": dist_stats["25"],
+                    "dist50": dist_stats["50"],
+                    "dist75": dist_stats["75"],
+                    "dist90": dist_stats["90"],
+                    "dist95": dist_stats["95"],
+                    "distMax": dist_stats["max"],
+                    "distHistogram": dist_hist,
+                    "coverageStats": coverage_stats,
+                    "minRssiByBearing": min_rssi_by_bearing,
+                    "ratioData": ratio_data,
+                    "minRatioData": min_ratio_data,
+                    "maxRatioData": max_ratio_data,
+                    "msg5mAvg": avg_5m,
+                    "msg15mAvg": avg_15m,
+                    "msg60mAvg": avg_60m,
+                    "maxMsgRate": MAX_MESSAGE_RATE
+                }
+
+                cloudevent = {
+                    "specversion": "1.0",
+                    "type": "com.vasters.signalstats1090.minuteUpdate",
+                    "source": "signalstats1090",
+                    "id": str(uuid.uuid4()),
+                    "time": datetime.datetime.utcnow().isoformat(),
+                    "data": payload
+                }
+
+                # Cache the long-term message rates
+                LONG_TERM_CACHE.append(cloudevent)
+            else:
+                # Second update
+                with DATA_LOCK:
+                    rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
+                    sig_min, sig_max, sig_avg = compute_signal_stats()
+                    sig_p = compute_signal_percentiles()
+                    dist_stats = compute_distance_stats()
+                    dist_hist = compute_distance_buckets()
+                    coverage_stats = compute_coverage_stats()
+                    min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
+                    ratio_data, min_ratio_data, max_ratio_data = compute_rssi_distance_ratio()
+
+                    avg_5m, avg_15m, avg_60m = compute_long_term_averages()
+
+                    # Update the maximum message rate observed
+                    MAX_MESSAGE_RATE = max(MAX_MESSAGE_RATE, rate_5s, rate_15s, rate_30s, rate_60s, rate_300s)
+
+                payload = {
+                    "msg5s": rate_5s,
+                    "msg15s": rate_15s,
+                    "msg30s": rate_30s,
+                    "msg60s": rate_60s,
+                    "msg300s": rate_300s,
+                    "sigMin": sig_min,
+                    "sigMax": sig_max,
+                    "sigAvg": sig_avg,
+                    "sig25": sig_p["25"],
+                    "sig50": sig_p["50"],
+                    "sig75": sig_p["75"],
+                    "sig90": sig_p["90"],
+                    "sig95": sig_p["95"],
+                    "sig99": sig_p["99"],
+                    "distMin": dist_stats["min"],
+                    "dist25": dist_stats["25"],
+                    "dist50": dist_stats["50"],
+                    "dist75": dist_stats["75"],
+                    "dist90": dist_stats["90"],
+                    "dist95": dist_stats["95"],
+                    "distMax": dist_stats["max"],
+                    "distHistogram": dist_hist,
+                    "coverageStats": coverage_stats,
+                    "minRssiByBearing": min_rssi_by_bearing,
+                    "ratioData": ratio_data,
+                    "minRatioData": min_ratio_data,
+                    "maxRatioData": max_ratio_data,
+                    "msg5mAvg": avg_5m,
+                    "msg15mAvg": avg_15m,
+                    "msg60mAvg": avg_60m,
+                    "maxMsgRate": MAX_MESSAGE_RATE
+                }
+
+                cloudevent = {
+                    "specversion": "1.0",
+                    "type": "com.vasters.signalstats1090.secondUpdate",
+                    "source": "signalstats1090",
+                    "id": str(uuid.uuid4()),
+                    "time": datetime.datetime.utcnow().isoformat(),
+                    "data": payload
+                }
 
             # Broadcast to all connected clients
             for ws_conn in list(CONNECTED_WEBSOCKETS):
                 try:
-                    await ws_conn.send_text(json.dumps(payload))
+                    await ws_conn.send_text(json.dumps(cloudevent))
                 except Exception:
                     logger.error("Error broadcasting stats", exc_info=True)
         except Exception as e:
@@ -514,7 +670,8 @@ async def app_lifespan(app_ref: FastAPI):
     Starts the BEAST listener and stats broadcaster at startup.
     """
     # Start ADSB client instead of beast_listener
-    client = ADSBClient(host=dump1090_host, port=dump1090_port, rawtype='beast')
+    client = ADSBClient(host=dump1090_host,
+                        port=dump1090_port, rawtype='beast')
     threading.Thread(target=client.run, daemon=True).start()
 
     asyncio.create_task(broadcast_stats_task())
@@ -546,6 +703,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     CONNECTED_WEBSOCKETS.add(websocket)
     try:
+        # Send cached long-term message rates to the newly connected client
+        for cached_event in LONG_TERM_CACHE:
+            await websocket.send_text(json.dumps(cached_event))
+
         while True:
             # Wait for a message to confirm connection.
             msg = await websocket.receive_text()
@@ -554,22 +715,29 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         CONNECTED_WEBSOCKETS.remove(websocket)
         print("WebSocket disconnected")
 
+
 def add_common_arguments(parser):
-    parser.add_argument("--host", type=str, help="Host to run the web server on.")
-    parser.add_argument("--port", type=int, help="Port to run the web server on.")
+    parser.add_argument("--host", type=str,
+                        help="Host to run the web server on.")
+    parser.add_argument("--port", type=int,
+                        help="Port to run the web server on.")
     parser.add_argument("--antenna-lat", type=float, help="Antenna latitude.")
     parser.add_argument("--antenna-lon", type=float, help="Antenna longitude.")
-    parser.add_argument("--dump1090-host", type=str, help="Host running dump1090.")
+    parser.add_argument("--dump1090-host", type=str,
+                        help="Host running dump1090.")
     parser.add_argument("--dump1090-port", type=int, help="Port for dump1090.")
+
 
 def main():
     parser = argparse.ArgumentParser(description="signalstats1090.")
     parser.add_argument("-c", "--config-file", type=str, default="~/.signalstats1090.config",
                         help="Path to the config file. Defaults to '~/.signalstats1090.config'.")
-    subparsers = parser.add_subparsers(dest="command", help="Subcommands: run, config, install, or uninstall")
+    subparsers = parser.add_subparsers(
+        dest="command", help="Subcommands: run, config, install, or uninstall")
 
     run_parser = subparsers.add_parser("run", help="Run the web server")
-    config_parser = subparsers.add_parser("config", help="Write config to file")
+    config_parser = subparsers.add_parser(
+        "config", help="Write config to file")
 
     defaults = {
         "host": "0.0.0.0",
@@ -596,7 +764,7 @@ def main():
                         setattr(args, k, v)
         except Exception:
             logger.error("Failed to load config file", exc_info=True)
-    
+
     # Set defaults if not provided
     for k, v in defaults.items():
         if not hasattr(args, k) or getattr(args, k) is None:
@@ -621,9 +789,11 @@ def main():
     elif args.command == "run":
         global ref_lat, ref_lon
         if args.antenna_lat is None or args.antenna_lon is None:
-            parser.error("Must provide --antenna-lat and --antenna-lon or set them via 'config' first.")
+            parser.error(
+                "Must provide --antenna-lat and --antenna-lon or set them via 'config' first.")
         logger.info(f"Starting server on {args.host}:{args.port}")
-        logger.info(f"Using antenna location: {args.antenna_lat}, {args.antenna_lon}")
+        logger.info(
+            f"Using antenna location: {args.antenna_lat}, {args.antenna_lon}")
         ref_lat = args.antenna_lat
         ref_lon = args.antenna_lon
         global dump1090_host, dump1090_port
@@ -634,6 +804,7 @@ def main():
     else:
         parser.print_help()
         logger.info("Printed help message")
+
 
 if __name__ == "__main__":
     main()
