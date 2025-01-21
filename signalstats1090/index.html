@@ -136,7 +136,12 @@
       <div class="value-item">
         <strong>Max Distance:</strong><br> <span id="currentMaxDistance">0</span>
       </div>
-      
+      <div class="value-item">
+        <strong>Memory Usage:</strong><br> <span id="currentMemoryUsage">0%</span>
+      </div>
+      <div class="value-item">
+        <strong>CPU Usage:</strong><br> <span id="currentCpuUsage">0%</span>
+      </div>
     </div>
     <div class="chart-container">
       <div class="chart-item">
@@ -763,6 +768,8 @@
         document.getElementById("currentMinDistance").textContent = data.distMin.toFixed(2);
         document.getElementById("currentMaxDistance").textContent = data.distMax.toFixed(2);
         document.getElementById("currentMaxMsgRate").textContent = Number(data.maxMsgRate).toFixed(2);
+        document.getElementById("currentMemoryUsage").textContent = data.memoryUsage.toFixed(2) + "%";
+        document.getElementById("currentCpuUsage").textContent = data.cpuUsage.toFixed(2) + "%";
 
         msgChart.data.labels.push(now);
         msgChart.data.datasets[0].data.push(data.msg5s);

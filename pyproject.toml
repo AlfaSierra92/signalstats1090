@@ -20,7 +20,8 @@ dependencies = [
     "websockets >= 14.2",
     "fastapi >=  0.115.6",
     "uvicorn[standard] >= 0.34.0",
-    "pyModeS >= 2.19"
+    "pyModeS >= 2.19",
+    "psutil >= 6.1.0"
 ]
 
 [project.scripts]

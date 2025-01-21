@@ -32,6 +32,9 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pyModeS.extra.tcpclient import TcpClient
+import psutil
+
+proc = psutil.Process()
 
 # Global deque for timestamps within the last 300s
 message_timestamps: Deque[float] = deque()
@@ -545,6 +548,7 @@ async def broadcast_stats_task() -> None:
     last_minute_update_time = 0.0
     last_minute_update_time = get_current_time() // 60 * 60
     global MAX_MESSAGE_RATE
+    global proc
 
     # delay to allow collection of initial data
     await asyncio.sleep(5.0) 
@@ -610,6 +614,11 @@ async def broadcast_stats_task() -> None:
                     rate_5s, rate_15s, rate_30s, rate_60s, rate_300s
                 )
 
+                # Obtain memory and CPU stats
+                memory_info = proc.memory_percent()
+                cpu_percent = proc.cpu_percent(interval=None)
+                
+
             payload = {
                 "msg5s": rate_5s,
                 "msg15s": rate_15s,
@@ -638,7 +647,9 @@ async def broadcast_stats_task() -> None:
                 "ratioData": ratio_data,
                 "minRatioData": min_ratio_data,
                 "maxRatioData": max_ratio_data,
-                "maxMsgRate": MAX_MESSAGE_RATE
+                "maxMsgRate": MAX_MESSAGE_RATE,
+                "memoryUsage": memory_info,
+                "cpuUsage": cpu_percent
             }
 
             cloudevent = {
