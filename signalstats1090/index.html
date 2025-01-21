@@ -205,7 +205,7 @@
           beginAtZero: true,
           ticks: {
             callback: function (value) {
-              return value.toFixed(2); // Display tiny value labels
+              return Number(value).toFixed(2); // Display tiny value labels
             }
           }
         },
@@ -214,7 +214,7 @@
         datalabels: {
           display: true,
           align: 'top',
-          formatter: (value) => value.toFixed(2)
+          formatter: (value) => Number(value).toFixed(2)
         }
       }
     };
@@ -233,7 +233,7 @@
             pointBackgroundColor: "rgb(0,0,255)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -245,7 +245,7 @@
             pointBackgroundColor: "rgb(0,128,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -257,7 +257,7 @@
             pointBackgroundColor: "rgb(75,192,192)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -269,7 +269,7 @@
             pointBackgroundColor: "rgb(192,75,192)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -281,7 +281,7 @@
             pointBackgroundColor: "rgb(192,192,75)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
         ],
@@ -308,6 +308,18 @@
       }
     };
 
+    // External data arrays
+    let lastPushedLabel = null;
+    let recentLabels = [];
+    let recentData5m = [];
+    let recentData15m = [];
+    let recentData60m = [];
+
+    let longTermLabels = [];
+    let longTermData5m = [];
+    let longTermData15m = [];
+    let longTermData60m = [];
+
     const longTermMsgChart = new Chart(longTermMsgCtx, {
       type: "line",
       data: {
@@ -322,7 +334,7 @@
             pointBackgroundColor: "rgb(255,99,132)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -334,7 +346,7 @@
             pointBackgroundColor: "rgb(54,162,235)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -346,7 +358,7 @@
             pointBackgroundColor: "rgb(75,192,192)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
         ],
@@ -359,13 +371,12 @@
             type: 'time',
             time: {
               unit: 'minute',
-              stepSize: 60,
               displayFormats: {
                 minute: 'HH:mm'
               }
             },
             ticks: {
-              maxTicksLimit: 12
+              maxTicksLimit: 12,
             }
           }
         },
@@ -376,6 +387,19 @@
       },
       plugins: [collectingDataPlugin]
     });
+
+    function updateLongTermChart() {
+      const mergedLabels = [...longTermLabels, ...recentLabels];
+      const mergedData5m = [...longTermData5m, ...recentData5m];
+      const mergedData15m = [...longTermData15m, ...recentData15m];
+      const mergedData60m = [...longTermData60m, ...recentData60m];
+
+      longTermMsgChart.data.labels = mergedLabels;
+      longTermMsgChart.data.datasets[0].data = mergedData5m;
+      longTermMsgChart.data.datasets[1].data = mergedData15m;
+      longTermMsgChart.data.datasets[2].data = mergedData60m;
+      longTermMsgChart.update();
+    }
 
     const signalChart = new Chart(signalCtx, {
       type: "line",
@@ -391,7 +415,7 @@
             pointBackgroundColor: "rgb(255,99,132)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -403,7 +427,7 @@
             pointBackgroundColor: "rgb(54,162,235)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -415,7 +439,7 @@
             pointBackgroundColor: "rgb(255,206,86)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -427,7 +451,7 @@
             pointBackgroundColor: "rgb(255,144,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -439,7 +463,7 @@
             pointBackgroundColor: "rgb(153,102,255)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -451,7 +475,7 @@
             pointBackgroundColor: "rgb(0,204,153)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -463,7 +487,7 @@
             pointBackgroundColor: "rgb(102,0,204)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -475,7 +499,7 @@
             pointBackgroundColor: "rgb(255,127,80)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -487,7 +511,7 @@
             pointBackgroundColor: "rgb(128,128,128)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
         ],
@@ -509,7 +533,7 @@
             pointBackgroundColor: "rgb(255,0,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -521,7 +545,7 @@
             pointBackgroundColor: "rgb(255,140,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -533,7 +557,7 @@
             pointBackgroundColor: "rgb(0,0,255)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -545,7 +569,7 @@
             pointBackgroundColor: "rgb(0,128,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -557,7 +581,7 @@
             pointBackgroundColor: "rgb(128,0,128)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -569,7 +593,7 @@
             pointBackgroundColor: "rgb(255,127,80)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
           {
@@ -581,7 +605,7 @@
             pointBackgroundColor: "rgb(128,128,128)",
             pointLabel: {
               display: true,
-              formatter: (value) => value.toFixed(2)
+              formatter: (value) => Number(value).ToFixed(2)
             }
           },
         ],
@@ -738,7 +762,7 @@
         document.getElementById("currentMaxSignal").textContent = data.sigMax.toFixed(2);
         document.getElementById("currentMinDistance").textContent = data.distMin.toFixed(2);
         document.getElementById("currentMaxDistance").textContent = data.distMax.toFixed(2);
-        document.getElementById("currentMaxMsgRate").textContent = data.maxMsgRate.toFixed(2);
+        document.getElementById("currentMaxMsgRate").textContent = Number(data.maxMsgRate).toFixed(2);
 
         msgChart.data.labels.push(now);
         msgChart.data.datasets[0].data.push(data.msg5s);
@@ -816,28 +840,42 @@
         distanceRssiRatioChart.update();
 
         longTermMsgChart.update();
-      } else if (cloudEvent.type === "com.vasters.signalstats1090.minuteUpdate") {
+      }  else if (cloudEvent.type === "com.vasters.signalstats1090.minuteUpdate") {
         const data = cloudEvent.data;
         const eventTime = new Date(cloudEvent.time);
 
-        // Update long-term message chart only once per minute
-        if (eventTime.getTime() - lastUpdateTime >= 60000) {
-          lastUpdateTime = eventTime.getTime();
-          longTermMsgChart.data.labels.push(eventTime);
-          longTermMsgChart.data.datasets[0].data.push(data.msg5mAvg);
-          longTermMsgChart.data.datasets[1].data.push(data.msg15mAvg);
-          longTermMsgChart.data.datasets[2].data.push(data.msg60mAvg);
-          if (longTermMsgChart.data.labels.length > 720) { // 12 hours of data
-            longTermMsgChart.data.labels.shift();
-            longTermMsgChart.data.datasets[0].data.shift();
-            longTermMsgChart.data.datasets[1].data.shift();
-            longTermMsgChart.data.datasets[2].data.shift();
+        // Add new data to recent arrays
+        recentLabels.push(eventTime);
+        recentData5m.push(data.msg5mAvg);
+        recentData15m.push(data.msg15mAvg);
+        recentData60m.push(data.msg60mAvg);
+
+        // Roll over data older than 5 minutes to long-term arrays
+        if (recentLabels.length > 5) {
+            if (!lastPushedLabel || (recentLabels[0] - lastPushedLabel) >= 5 * 60 * 1000) {
+            lastPushedLabel = recentLabels[0];
+
+            longTermLabels.push(recentLabels.shift());
+            longTermData5m.push(recentData5m.shift());
+            longTermData15m.push(recentData15m.shift());
+            longTermData60m.push(recentData60m.shift());
+          } else {
+            recentLabels.shift();
+            recentData5m.shift();
+            recentData15m.shift();
+            recentData60m.shift();
           }
-          longTermMsgChart.update();
+
+          // Prune long-term arrays to keep at most 12 hours of data
+          if (longTermLabels.length > 144) {
+            longTermLabels.shift();
+            longTermData5m.shift();
+            longTermData15m.shift();
+            longTermData60m.shift();
+          }
         }
 
-        // Update current values
-        document.getElementById("currentMaxMsgRate").textContent = data.maxMsgRate.toFixed(2);
+        updateLongTermChart();
       }
     };
   </script>
