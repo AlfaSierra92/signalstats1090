@@ -42,8 +42,8 @@ DISTANCES_30S: Deque[Tuple[float, float]] = deque()
 MIN_RSSI_TIMESTAMPS: Deque[Tuple[float, int, float]] = deque()
 DISTANCE_RSSI_RATIO_30S: Deque[Tuple[float, float, float, float]] = deque()  # (timestamp, ratio, lat, lon)
 
-ref_lat: float = 51.260765417701066
-ref_lon: float = 6.338479359520795
+ref_lat: float = 0
+ref_lon: float = 0
 
 dump1090_host: str = "localhost"
 dump1090_port: int = 30005
@@ -128,6 +128,11 @@ def expire_min_rssi(now: float) -> None:
                 (r for t, b, r in MIN_RSSI_TIMESTAMPS if b == bearing),
                 default=float(0)
             )
+
+
+def expire_distance_rssi_ratio(now: float) -> None:
+    while DISTANCE_RSSI_RATIO_30S and DISTANCE_RSSI_RATIO_30S[0][0] < now - 30:
+        DISTANCE_RSSI_RATIO_30S.popleft()
 
 
 def compute_message_rates() -> Tuple[float, float, float, float, float]:
@@ -553,6 +558,7 @@ async def broadcast_stats_task() -> None:
             update_distance_sliding_window(now)
             update_coverage_sliding_window(now)
             expire_min_rssi(now)
+            expire_distance_rssi_ratio(now)
 
             with DATA_LOCK:
                 # Compute message rates in a single pass
