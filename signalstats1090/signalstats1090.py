@@ -137,49 +137,20 @@ def expire_distance_rssi_ratio(now: float) -> None:
     while DISTANCE_RSSI_RATIO_30S and DISTANCE_RSSI_RATIO_30S[0][0] < now - 30:
         DISTANCE_RSSI_RATIO_30S.popleft()
 
-
 def compute_message_rates() -> Tuple[float, float, float, float, float]:
     """
     Computes average message rates for 5s, 15s, 30s, 60s, and 300s windows
     """
 
-    global message_timestamps
-
     now = get_current_time()
-    new_timestamps = Deque[float]()
 
-    count_5s = 0
-    count_15s = 0
-    count_30s = 0
-    count_60s = 0
-    count_300s = 0
+    count_5s = sum(1 for t in message_timestamps if now - t <= 5)
+    count_15s = sum(1 for t in message_timestamps if now - t <= 15)
+    count_30s = sum(1 for t in message_timestamps if now - t <= 30)
+    count_60s = sum(1 for t in message_timestamps if now - t <= 60)
+    count_300s = sum(1 for t in message_timestamps if now - t <= 300)
 
-    # Single pass to count how many timestamps fall into each age window
-    for t in reversed(message_timestamps):
-        age = now - t
-        if age <= 5:
-            count_5s += 1
-        if age <= 15:
-            count_15s += 1
-        if age <= 30:
-            count_30s += 1
-        if age <= 60:
-            count_60s += 1
-        if age <= 300:
-            count_300s += 1
-            new_timestamps.appendleft(t)
-  
-    # Reset timestamps to the new list of valid ones
-    message_timestamps.clear()
-    message_timestamps.extend(new_timestamps)
-
-    rate_5s = count_5s / 5.0
-    rate_15s = count_15s / 15.0
-    rate_30s = count_30s / 30.0
-    rate_60s = count_60s / 60.0
-    rate_300s = count_300s / 300.0
-
-    return (rate_5s, rate_15s, rate_30s, rate_60s, rate_300s)
+    return (count_5s / 5.0, count_15s / 15.0, count_30s / 30.0, count_60s / 60.0, count_300s / 300.0)
 
 
 def compute_signal_stats() -> Tuple[float, float, float]:
