@@ -189,6 +189,12 @@
         <div class="chart-description">Questo istogramma mostra la distribuzione delle tipologie di messaggi Mode-S ricevuti.</div>
         <canvas id="messageTypeChart"></canvas>
       </div>
+      <!-- Aggiungi questo nuovo elemento canvas per il grafico degli ADS-B message type -->
+      <div class="chart-item">
+        <div class="chart-title">Tipologia di Messaggi ADS-B</div>
+        <div class="chart-description">Questo istogramma mostra la distribuzione delle tipologie di messaggi ADS-B ricevuti.</div>
+        <canvas id="adsbMessageTypeChart"></canvas>
+      </div>
     </div>
     <div class="footer">
       Made by <a href="https://vasters.com">Clemens Vasters</a> with love. Use as you like and at your own risk.
@@ -206,6 +212,7 @@
     const longTermMsgCtx = document.getElementById("longTermMsgChart").getContext("2d");
     const distanceRssiRatioCtx = document.getElementById('distanceRssiRatioChart').getContext('2d');
     const messageTypeCtx = document.getElementById("messageTypeChart").getContext("2d");
+    const adsbMessageTypeCtx = document.getElementById("adsbMessageTypeChart").getContext("2d");
 
     const chartOptions = {
       responsive: true, // Ensure the chart is responsive
@@ -811,12 +818,76 @@
       }
     });
 
+    const adsbMessageTypeData = {
+      labels: [
+        "Aircraft Identification",
+        "Surface Position",
+        "Airborne Position (Baro Altitude)",
+        "Airborne Velocities",
+        "Airborne Position (GNSS Height)",
+        "Reserved",
+        "Surface System Status",
+        "Aircraft Status",
+        "Target State and Status Information",
+        "Aircraft Operational Status",
+        "Unknown ADS-B",
+        "Non ADS-B"
+      ],
+      datasets: [{
+        label: "Count",
+        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        backgroundColor: [
+          "rgba(255, 99, 132, 0.5)",
+          "rgba(54, 162, 235, 0.5)",
+          "rgba(75, 192, 192, 0.5)",
+          "rgba(153, 102, 255, 0.5)",
+          "rgba(255, 159, 64, 0.5)",
+          "rgba(255, 205, 86, 0.5)",
+          "rgba(201, 203, 207, 0.5)",
+          "rgba(255, 99, 132, 0.5)",
+          "rgba(54, 162, 235, 0.5)",
+          "rgba(75, 192, 192, 0.5)",
+          "rgba(153, 102, 255, 0.5)",
+          "rgba(255, 159, 64, 0.5)"
+        ],
+        borderColor: [
+          "rgba(255, 99, 132, 1)",
+          "rgba(54, 162, 235, 1)",
+          "rgba(75, 192, 192, 1)",
+          "rgba(153, 102, 255, 1)",
+          "rgba(255, 159, 64, 1)",
+          "rgba(255, 205, 86, 1)",
+          "rgba(201, 203, 207, 1)",
+          "rgba(255, 99, 132, 1)",
+          "rgba(54, 162, 235, 1)",
+          "rgba(75, 192, 192, 1)",
+          "rgba(153, 102, 255, 1)",
+          "rgba(255, 159, 64, 1)"
+        ],
+        borderWidth: 1
+      }]
+    };
+
+    const adsbMessageTypeChart = new Chart(adsbMessageTypeCtx, {
+      type: "bar",
+      data: adsbMessageTypeData,
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
     let lastUpdateTime = 0;
 
     const ws = new WebSocket(`ws://${window.location.host}/ws`);
     ws.onopen = () => {
       ws.send("ping");
     };
+    // Aggiorna il blocco ws.onmessage per includere distHistogram
     ws.onmessage = (event) => {
       const cloudEvent = JSON.parse(event.data);
       if (cloudEvent.type === "com.vasters.signalstats1090.secondUpdate") {
@@ -849,6 +920,28 @@
           messageTypeCounts["Unknown"] || 0
         ];
         messageTypeChart.update();
+
+        // Update ADS-B message type chart
+        const adsbMessageTypeCounts = data.adsbMessageTypeCounts;
+        adsbMessageTypeChart.data.datasets[0].data = [
+          adsbMessageTypeCounts["Aircraft Identification"] || 0,
+          adsbMessageTypeCounts["Surface Position"] || 0,
+          adsbMessageTypeCounts["Airborne Position (Baro Altitude)"] || 0,
+          adsbMessageTypeCounts["Airborne Velocities"] || 0,
+          adsbMessageTypeCounts["Airborne Position (GNSS Height)"] || 0,
+          adsbMessageTypeCounts["Reserved"] || 0,
+          adsbMessageTypeCounts["Surface System Status"] || 0,
+          adsbMessageTypeCounts["Aircraft Status"] || 0,
+          adsbMessageTypeCounts["Target State and Status Information"] || 0,
+          adsbMessageTypeCounts["Aircraft Operational Status"] || 0,
+          adsbMessageTypeCounts["Unknown ADS-B"] || 0,
+          adsbMessageTypeCounts["Non ADS-B"] || 0
+        ];
+        adsbMessageTypeChart.update();
+
+        // Update distance histogram chart
+        distHistChart.data.datasets[0].data = data.distHistogram;
+        distHistChart.update();
 
         msgChart.data.labels.push(now);
         msgChart.data.datasets[0].data.push(data.msg5s);
@@ -926,7 +1019,7 @@
         distanceRssiRatioChart.update();
 
         longTermMsgChart.update();
-      }  else if (cloudEvent.type === "com.vasters.signalstats1090.minuteUpdate") {
+      } else if (cloudEvent.type === "com.vasters.signalstats1090.minuteUpdate") {
         const data = cloudEvent.data;
         const eventTime = new Date(cloudEvent.time);
 
@@ -938,7 +1031,7 @@
 
         // Roll over data older than 5 minutes to long-term arrays
         if (recentLabels.length > 5) {
-            if (!lastPushedLabel || (recentLabels[0] - lastPushedLabel) >= 5 * 60 * 1000) {
+          if (!lastPushedLabel || (recentLabels[0] - lastPushedLabel) >= 5 * 60 * 1000) {
             lastPushedLabel = recentLabels[0];
 
             longTermLabels.push(recentLabels.shift());

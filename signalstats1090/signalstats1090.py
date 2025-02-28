@@ -193,11 +193,10 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     """
     Returns distance in km between two lat/lon points using the Haversine formula.
     """
-    r = 6371
+    r = 6371  # Radius of the Earth in km
     d_lat = radians(lat2 - lat1)
-    d_lon = radians(lat2 - lon1)
-    a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * \
-        cos(radians(lat2)) * sin(d_lon / 2) ** 2
+    d_lon = radians(lat2 - lat1)
+    a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2) ** 2
     return 2 * r * asin(sqrt(a))
 
 
@@ -347,6 +346,37 @@ def get_mode_s_message_type(msg: str) -> str:
     else:
         return "Unknown"
 
+def get_adsb_message_type(msg: str) -> str:
+    """
+    Restituisce la tipologia di messaggio ADS-B.
+    """
+    df = pms.df(msg)
+    if df in [17, 18]:
+        tc = pms.typecode(msg)
+        if 1 <= tc <= 4:
+            return "Aircraft Identification"
+        elif 5 <= tc <= 8:
+            return "Surface Position"
+        elif 9 <= tc <= 18:
+            return "Airborne Position (Baro Altitude)"
+        elif 19 == tc:
+            return "Airborne Velocities"
+        elif 20 <= tc <= 22:
+            return "Airborne Position (GNSS Height)"
+        elif 23 == tc:
+            return "Reserved"
+        elif 24 == tc:
+            return "Surface System Status"
+        elif 25 <= tc <= 27:
+            return "Aircraft Status"
+        elif 28 == tc:
+            return "Target State and Status Information"
+        elif 29 == tc:
+            return "Aircraft Operational Status"
+        else:
+            return "Unknown ADS-B"
+    else:
+        return "Non ADS-B"
 
 class ADSBClient(TcpClient):
     """
@@ -416,6 +446,12 @@ class ADSBClient(TcpClient):
                     # Update message type counts
                     message_type = get_mode_s_message_type(msg)
                     message_type_counts[message_type] += 1
+
+                    # Update ADS-B message type counts
+                    adsb_message_type = get_adsb_message_type(msg)
+                    if adsb_message_type not in message_type_counts:
+                        message_type_counts[adsb_message_type] = 0
+                    message_type_counts[adsb_message_type] += 1
 
         except Exception as e:
             logger.error("Error handling messages", exc_info=True)
@@ -653,7 +689,21 @@ async def broadcast_stats_task() -> None:
                     "maxMsgRate": MAX_MESSAGE_RATE,
                     "memoryUsage": memory_info,
                     "cpuUsage": cpu_percent,
-                    "messageTypeCounts": message_type_counts
+                    "messageTypeCounts": message_type_counts,
+                    "adsbMessageTypeCounts": {  # Aggiungi questo per i tipi di messaggi ADS-B
+                        "Aircraft Identification": message_type_counts.get("Aircraft Identification", 0),
+                        "Surface Position": message_type_counts.get("Surface Position", 0),
+                        "Airborne Position (Baro Altitude)": message_type_counts.get("Airborne Position (Baro Altitude)", 0),
+                        "Airborne Velocities": message_type_counts.get("Airborne Velocities", 0),
+                        "Airborne Position (GNSS Height)": message_type_counts.get("Airborne Position (GNSS Height)", 0),
+                        "Reserved": message_type_counts.get("Reserved", 0),
+                        "Surface System Status": message_type_counts.get("Surface System Status", 0),
+                        "Aircraft Status": message_type_counts.get("Aircraft Status", 0),
+                        "Target State and Status Information": message_type_counts.get("Target State and Status Information", 0),
+                        "Aircraft Operational Status": message_type_counts.get("Aircraft Operational Status", 0),
+                        "Unknown ADS-B": message_type_counts.get("Unknown ADS-B", 0),
+                        "Non ADS-B": message_type_counts.get("Non ADS-B", 0)
+                    }
                 }
     
                 cloudevent = {
