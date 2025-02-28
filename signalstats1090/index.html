@@ -184,6 +184,11 @@
         <div class="chart-description">This radar chart shows the ratio of RSSI to distance for each bearing segment. It helps identify the efficiency of signal reception over distance.</div>
         <canvas id="distanceRssiRatioChart"></canvas>
       </div>
+      <div class="chart-item">
+        <div class="chart-title">Tipologia di Messaggi Mode-S</div>
+        <div class="chart-description">Questo istogramma mostra la distribuzione delle tipologie di messaggi Mode-S ricevuti.</div>
+        <canvas id="messageTypeChart"></canvas>
+      </div>
     </div>
     <div class="footer">
       Made by <a href="https://vasters.com">Clemens Vasters</a> with love. Use as you like and at your own risk.
@@ -200,6 +205,7 @@
     const minRssiBearingCtx = document.getElementById("minRssiBearingChart").getContext("2d");
     const longTermMsgCtx = document.getElementById("longTermMsgChart").getContext("2d");
     const distanceRssiRatioCtx = document.getElementById('distanceRssiRatioChart').getContext('2d');
+    const messageTypeCtx = document.getElementById("messageTypeChart").getContext("2d");
 
     const chartOptions = {
       responsive: true, // Ensure the chart is responsive
@@ -538,7 +544,7 @@
             pointBackgroundColor: "rgb(255,0,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => Number(value).ToFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -550,7 +556,7 @@
             pointBackgroundColor: "rgb(255,140,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => Number(value).ToFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -562,7 +568,7 @@
             pointBackgroundColor: "rgb(0,0,255)",
             pointLabel: {
               display: true,
-              formatter: (value) => Number(value).ToFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -574,7 +580,7 @@
             pointBackgroundColor: "rgb(0,128,0)",
             pointLabel: {
               display: true,
-              formatter: (value) => Number(value).ToFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -586,7 +592,7 @@
             pointBackgroundColor: "rgb(128,0,128)",
             pointLabel: {
               display: true,
-              formatter: (value) => Number(value).ToFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -598,7 +604,7 @@
             pointBackgroundColor: "rgb(255,127,80)",
             pointLabel: {
               display: true,
-              formatter: (value) => Number(value).ToFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
           {
@@ -610,7 +616,7 @@
             pointBackgroundColor: "rgb(128,128,128)",
             pointLabel: {
               display: true,
-              formatter: (value) => Number(value).ToFixed(2)
+              formatter: (value) => Number(value).toFixed(2)
             }
           },
         ],
@@ -748,6 +754,40 @@
       },
     });
 
+    const messageTypeData = {
+      labels: ["Short Air-Air Surveillance", "Long Air-Air Surveillance", "Other", "Unknown"],
+      datasets: [{
+        label: "Count",
+        data: [0, 0, 0, 0],
+        backgroundColor: [
+          "rgba(255, 99, 132, 0.5)",
+          "rgba(54, 162, 235, 0.5)",
+          "rgba(75, 192, 192, 0.5)",
+          "rgba(153, 102, 255, 0.5)"
+        ],
+        borderColor: [
+          "rgba(255, 99, 132, 1)",
+          "rgba(54, 162, 235, 1)",
+          "rgba(75, 192, 192, 1)",
+          "rgba(153, 102, 255, 1)"
+        ],
+        borderWidth: 1
+      }]
+    };
+
+    const messageTypeChart = new Chart(messageTypeCtx, {
+      type: "bar",
+      data: messageTypeData,
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
     let lastUpdateTime = 0;
 
     const ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -770,6 +810,16 @@
         document.getElementById("currentMaxMsgRate").textContent = Number(data.maxMsgRate).toFixed(2);
         document.getElementById("currentMemoryUsage").textContent = data.memoryUsage.toFixed(2) + "%";
         document.getElementById("currentCpuUsage").textContent = data.cpuUsage.toFixed(2) + "%";
+
+        // Update message type chart
+        const messageTypeCounts = data.messageTypeCounts;
+        messageTypeChart.data.datasets[0].data = [
+          messageTypeCounts["Short Air-Air Surveillance"] || 0,
+          messageTypeCounts["Long Air-Air Surveillance"] || 0,
+          messageTypeCounts["Other"] || 0,
+          messageTypeCounts["Unknown"] || 0
+        ];
+        messageTypeChart.update();
 
         msgChart.data.labels.push(now);
         msgChart.data.datasets[0].data.push(data.msg5s);

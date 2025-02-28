@@ -33,6 +33,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pyModeS.extra.tcpclient import TcpClient
 import psutil
+import numpy as np
 
 proc = psutil.Process()
 
@@ -79,6 +80,13 @@ LONG_TERM_CACHE: Deque[dict] = deque(maxlen=120)
 
 # Global variable to store the maximum message rate observed
 MAX_MESSAGE_RATE = 0.0
+
+message_type_counts = {
+    "Short Air-Air Surveillance": 0,
+    "Long Air-Air Surveillance": 0,
+    "Other": 0,
+    "Unknown": 0
+}
 
 
 def get_current_time() -> float:
@@ -155,32 +163,29 @@ def compute_message_rates() -> Tuple[float, float, float, float, float]:
 
 def compute_signal_stats() -> Tuple[float, float, float]:
     """
-    Computes min, max, and average signal level over the last 30s.
+    Computes min, max, and average signal level over the last 30s using NumPy.
     """
     if not SIGNAL_LEVELS_30S:
         return (0.0, 0.0, 0.0)
-    values = [v[1] for v in SIGNAL_LEVELS_30S]
-    return (min(values), max(values), sum(values) / len(values))
+    values = np.array([v[1] for v in SIGNAL_LEVELS_30S])
+    return (np.min(values), np.max(values), np.mean(values))
 
 
 def compute_signal_percentiles() -> dict:
     """
-    Computes selected percentiles of signal level over the last 30s.
+    Computes selected percentiles of signal level over the last 30s using NumPy.
     """
     if not SIGNAL_LEVELS_30S:
         return {"25": 0, "50": 0, "75": 0, "90": 0, "95": 0, "99": 0}
-    values = sorted([v[1] for v in SIGNAL_LEVELS_30S])
-
-    def pct(p):
-        return statistics.quantiles(values, n=100, method='inclusive')[p - 1]
-
+    values = np.array([v[1] for v in SIGNAL_LEVELS_30S])
+    percentiles = np.percentile(values, [25, 50, 75, 90, 95, 99])
     return {
-        "25": pct(25),
-        "50": pct(50),
-        "75": pct(75),
-        "90": pct(90),
-        "95": pct(95),
-        "99": pct(99)
+        "25": percentiles[0],
+        "50": percentiles[1],
+        "75": percentiles[2],
+        "90": percentiles[3],
+        "95": percentiles[4],
+        "99": percentiles[5]
     }
 
 
@@ -190,7 +195,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     """
     r = 6371
     d_lat = radians(lat2 - lat1)
-    d_lon = radians(lon2 - lon1)
+    d_lon = radians(lat2 - lon1)
     a = sin(d_lat / 2) ** 2 + cos(radians(lat1)) * \
         cos(radians(lat2)) * sin(d_lon / 2) ** 2
     return 2 * r * asin(sqrt(a))
@@ -209,37 +214,32 @@ def compute_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float
 
 def compute_distance_stats() -> dict:
     """
-    Computes min, max, 25%, 50%, 75%, 90%, 95% distance over the last 30s.
+    Computes min, max, and percentiles of distance over the last 30s using NumPy.
     """
     if not DISTANCES_30S:
         return {"min": 0, "25": 0, "50": 0, "75": 0, "90": 0, "95": 0, "max": 0}
-    values = sorted([d[1] for d in DISTANCES_30S])
-
-    def pct(p):
-        return statistics.quantiles(values, n=100, method='inclusive')[p - 1]
-
+    values = np.array([d[1] for d in DISTANCES_30S])
+    percentiles = np.percentile(values, [25, 50, 75, 90, 95])
     return {
-        "min": values[0],
-        "25": pct(25),
-        "50": pct(50),
-        "75": pct(75),
-        "90": pct(90),
-        "95": pct(95),
-        "max": values[-1]
+        "min": np.min(values),
+        "25": percentiles[0],
+        "50": percentiles[1],
+        "75": percentiles[2],
+        "90": percentiles[3],
+        "95": percentiles[4],
+        "max": np.max(values)
     }
 
 
 def compute_distance_buckets() -> list:
     """
-    Computes the rolling 30s count of position readings in 30km buckets (up to 300km).
+    Computes the rolling 30s count of position readings in 30km buckets using NumPy.
     """
-    buckets = [0] * 10
-    for _, dist in DISTANCES_30S:
-        index = int(dist // 30)
-        if index >= len(buckets):
-            index = len(buckets) - 1
-        buckets[index] += 1
-    return buckets
+    if not DISTANCES_30S:
+        return [0] * 10
+    values = np.array([d[1] for d in DISTANCES_30S])
+    buckets, _ = np.histogram(values, bins=range(0, 330, 30))
+    return buckets.tolist()
 
 
 def compute_coverage_stats() -> list:
@@ -323,6 +323,21 @@ def compute_rssi_distance_ratio() -> Tuple[list, list, list]:
     return ratio_data, MIN_RATIO_BY_BEARING, MAX_RATIO_BY_BEARING
 
 
+def get_mode_s_message_type(msg: str) -> str:
+    """
+    Restituisce la tipologia di messaggio Mode-S.
+    """
+    df = pms.df(msg)
+    if df in [0, 4, 5, 11]:
+        return "Short Air-Air Surveillance"
+    elif df in [16, 17, 18, 19, 20, 21, 24]:
+        return "Long Air-Air Surveillance"
+    elif df in [1, 2, 3, 6, 7, 8, 9, 10, 12, 13, 14, 15, 22, 23, 25, 26, 27, 28, 29, 30, 31]:
+        return "Other"
+    else:
+        return "Unknown"
+
+
 class ADSBClient(TcpClient):
     """
     Custom ADS-B client that extends TcpClient to handle Mode-S messages.
@@ -334,6 +349,7 @@ class ADSBClient(TcpClient):
     def handle_messages(self, messages):
 
         global message_timestamps
+        global message_type_counts
 
         try:
             for msg, dbfs_rssi, ts in messages:
@@ -386,6 +402,11 @@ class ADSBClient(TcpClient):
                                 MAX_RATIO_BY_BEARING[segment] = max(
                                     MAX_RATIO_BY_BEARING[segment], ratio
                                 )
+
+                    # Update message type counts
+                    message_type = get_mode_s_message_type(msg)
+                    message_type_counts[message_type] += 1
+
         except Exception as e:
             logger.error("Error handling messages", exc_info=True)
 
@@ -520,6 +541,7 @@ async def broadcast_stats_task() -> None:
     last_minute_update_time = get_current_time() // 60 * 60
     global MAX_MESSAGE_RATE
     global proc
+    global message_type_counts
 
     # delay to allow collection of initial data
     await asyncio.sleep(5.0) 
@@ -535,109 +557,110 @@ async def broadcast_stats_task() -> None:
             expire_min_rssi(now)
             expire_distance_rssi_ratio(now)
 
-            with DATA_LOCK:
-                # Compute message rates in a single pass
-                rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
-
-            if now - last_minute_update_time >= 60.0:
-                # Minute update
-                last_minute_update_time = now
+            if CONNECTED_WEBSOCKETS:
                 with DATA_LOCK:
-                    update_long_term_msg_rates(rate_60s, get_current_time())
-                    avg_5m, avg_15m, avg_60m = compute_long_term_averages()
-
+                    # Compute message rates in a single pass
+                    rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
+    
+                if now - last_minute_update_time >= 60.0:
+                    # Minute update
+                    last_minute_update_time = now
+                    with DATA_LOCK:
+                        update_long_term_msg_rates(rate_60s, get_current_time())
+                        avg_5m, avg_15m, avg_60m = compute_long_term_averages()
+    
+                    payload = {
+                        "msg5mAvg": avg_5m,
+                        "msg15mAvg": avg_15m,
+                        "msg60mAvg": avg_60m
+                    }
+    
+                    cloudevent = {
+                        "specversion": "1.0",
+                        "type": "com.vasters.signalstats1090.minuteUpdate",
+                        "source": "signalstats1090",
+                        "id": str(uuid.uuid4()),
+                        "time": datetime.datetime.utcnow().isoformat(),
+                        "data": payload
+                    }
+    
+                    # Cache the long-term message rates
+                    LONG_TERM_CACHE.append(cloudevent)
+    
+                    # Broadcast to all connected clients
+                    for ws_conn in list(CONNECTED_WEBSOCKETS):
+                        try:
+                            await ws_conn.send_text(json.dumps(cloudevent))
+                        except Exception:
+                            logger.error("Error broadcasting stats", exc_info=True)
+    
+                # Second update (every second)
+                with DATA_LOCK:
+                    sig_min, sig_max, sig_avg = compute_signal_stats()
+                    sig_p = compute_signal_percentiles()
+                    dist_stats = compute_distance_stats()
+                    dist_hist = compute_distance_buckets()
+                    coverage_stats = compute_coverage_stats()
+                    min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
+                    ratio_data, min_ratio_data, max_ratio_data = compute_rssi_distance_ratio()
+                    MAX_MESSAGE_RATE = max(
+                        MAX_MESSAGE_RATE,
+                        rate_5s, rate_15s, rate_30s, rate_60s, rate_300s
+                    )
+    
+                    # Obtain memory and CPU stats
+                    memory_info = proc.memory_percent()
+                    cpu_percent = proc.cpu_percent(interval=None)
+    
                 payload = {
-                    "msg5mAvg": avg_5m,
-                    "msg15mAvg": avg_15m,
-                    "msg60mAvg": avg_60m
+                    "msg5s": rate_5s,
+                    "msg15s": rate_15s,
+                    "msg30s": rate_30s,
+                    "msg60s": rate_60s,
+                    "msg300s": rate_300s,
+                    "sigMin": sig_min,
+                    "sigMax": sig_max,
+                    "sigAvg": sig_avg,
+                    "sig25": sig_p["25"],
+                    "sig50": sig_p["50"],
+                    "sig75": sig_p["75"],
+                    "sig90": sig_p["90"],
+                    "sig95": sig_p["95"],
+                    "sig99": sig_p["99"],
+                    "distMin": dist_stats["min"],
+                    "dist25": dist_stats["25"],
+                    "dist50": dist_stats["50"],
+                    "dist75": dist_stats["75"],
+                    "dist90": dist_stats["90"],
+                    "dist95": dist_stats["95"],
+                    "distMax": dist_stats["max"],
+                    "distHistogram": dist_hist,
+                    "coverageStats": coverage_stats,
+                    "minRssiByBearing": min_rssi_by_bearing,
+                    "ratioData": ratio_data,
+                    "minRatioData": min_ratio_data,
+                    "maxRatioData": max_ratio_data,
+                    "maxMsgRate": MAX_MESSAGE_RATE,
+                    "memoryUsage": memory_info,
+                    "cpuUsage": cpu_percent,
+                    "messageTypeCounts": message_type_counts
                 }
-
+    
                 cloudevent = {
                     "specversion": "1.0",
-                    "type": "com.vasters.signalstats1090.minuteUpdate",
+                    "type": "com.vasters.signalstats1090.secondUpdate",
                     "source": "signalstats1090",
                     "id": str(uuid.uuid4()),
                     "time": datetime.datetime.utcnow().isoformat(),
                     "data": payload
                 }
-
-                # Cache the long-term message rates
-                LONG_TERM_CACHE.append(cloudevent)
-
+    
                 # Broadcast to all connected clients
                 for ws_conn in list(CONNECTED_WEBSOCKETS):
                     try:
                         await ws_conn.send_text(json.dumps(cloudevent))
                     except Exception:
                         logger.error("Error broadcasting stats", exc_info=True)
-
-            # Second update (every second)
-            with DATA_LOCK:
-                sig_min, sig_max, sig_avg = compute_signal_stats()
-                sig_p = compute_signal_percentiles()
-                dist_stats = compute_distance_stats()
-                dist_hist = compute_distance_buckets()
-                coverage_stats = compute_coverage_stats()
-                min_rssi_by_bearing = MIN_RSSI_BY_BEARING.copy()
-                ratio_data, min_ratio_data, max_ratio_data = compute_rssi_distance_ratio()
-                MAX_MESSAGE_RATE = max(
-                    MAX_MESSAGE_RATE,
-                    rate_5s, rate_15s, rate_30s, rate_60s, rate_300s
-                )
-
-                # Obtain memory and CPU stats
-                memory_info = proc.memory_percent()
-                cpu_percent = proc.cpu_percent(interval=None)
-                
-
-            payload = {
-                "msg5s": rate_5s,
-                "msg15s": rate_15s,
-                "msg30s": rate_30s,
-                "msg60s": rate_60s,
-                "msg300s": rate_300s,
-                "sigMin": sig_min,
-                "sigMax": sig_max,
-                "sigAvg": sig_avg,
-                "sig25": sig_p["25"],
-                "sig50": sig_p["50"],
-                "sig75": sig_p["75"],
-                "sig90": sig_p["90"],
-                "sig95": sig_p["95"],
-                "sig99": sig_p["99"],
-                "distMin": dist_stats["min"],
-                "dist25": dist_stats["25"],
-                "dist50": dist_stats["50"],
-                "dist75": dist_stats["75"],
-                "dist90": dist_stats["90"],
-                "dist95": dist_stats["95"],
-                "distMax": dist_stats["max"],
-                "distHistogram": dist_hist,
-                "coverageStats": coverage_stats,
-                "minRssiByBearing": min_rssi_by_bearing,
-                "ratioData": ratio_data,
-                "minRatioData": min_ratio_data,
-                "maxRatioData": max_ratio_data,
-                "maxMsgRate": MAX_MESSAGE_RATE,
-                "memoryUsage": memory_info,
-                "cpuUsage": cpu_percent
-            }
-
-            cloudevent = {
-                "specversion": "1.0",
-                "type": "com.vasters.signalstats1090.secondUpdate",
-                "source": "signalstats1090",
-                "id": str(uuid.uuid4()),
-                "time": datetime.datetime.utcnow().isoformat(),
-                "data": payload
-            }
-
-            # Broadcast to all connected clients
-            for ws_conn in list(CONNECTED_WEBSOCKETS):
-                try:
-                    await ws_conn.send_text(json.dumps(cloudevent))
-                except Exception:
-                    logger.error("Error broadcasting stats", exc_info=True)
 
         except Exception:
             logger.error("Error in broadcast_stats_task", exc_info=True)
