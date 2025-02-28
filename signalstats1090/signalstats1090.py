@@ -332,8 +332,18 @@ def get_mode_s_message_type(msg: str) -> str:
         return "Short Air-Air Surveillance"
     elif df in [16, 17, 18, 19, 20, 21, 24]:
         return "Long Air-Air Surveillance"
-    elif df in [1, 2, 3, 6, 7, 8, 9, 10, 12, 13, 14, 15, 22, 23, 25, 26, 27, 28, 29, 30, 31]:
-        return "Other"
+    elif df in [1, 2, 3]:
+        return "Short Surveillance"
+    elif df in [6, 7, 8]:
+        return "Comm-B, Altitude Reply"
+    elif df in [9, 10]:
+        return "Comm-B, Identity Reply"
+    elif df in [12, 13, 14, 15]:
+        return "Comm-D"
+    elif df in [22, 23]:
+        return "Comm-D Extended Squitter"
+    elif df in [25, 26, 27, 28, 29, 30, 31]:
+        return "Comm-D Non-Transponder"
     else:
         return "Unknown"
 
