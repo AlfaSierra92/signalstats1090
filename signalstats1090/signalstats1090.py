@@ -26,6 +26,8 @@ import datetime
 from collections import defaultdict, deque
 from math import asin, atan2, cos, degrees, radians, sin, sqrt
 from typing import AsyncGenerator, Deque, Tuple
+import heapq
+from bisect import bisect_left, insort_left
 
 import pyModeS as pms
 import uvicorn
@@ -48,6 +50,10 @@ SIGNAL_LEVELS_30S: Deque[Tuple[float, float]] = deque()
 DISTANCES_30S: Deque[Tuple[float, float]] = deque()
 MIN_RSSI_TIMESTAMPS: Deque[Tuple[float, int, float]] = deque()
 DISTANCE_RSSI_RATIO_30S: Deque[Tuple[float, float, float, float]] = deque()  # (timestamp, ratio, lat, lon)
+
+# Global min-heaps for efficient min/max calculations
+MIN_RSSI_HEAP = defaultdict(list)
+MAX_RSSI_HEAP = defaultdict(list)
 
 ref_lat: float = 0
 ref_lon: float = 0
@@ -126,8 +132,8 @@ def update_min_rssi_by_bearing(bearing: int, rssi: float, now: float) -> None:
     Updates the minimum RSSI for a given bearing segment and records the timestamp.
     """
     MIN_RSSI_TIMESTAMPS.append((now, bearing, rssi))
-    if rssi < MIN_RSSI_BY_BEARING[bearing]:
-        MIN_RSSI_BY_BEARING[bearing] = rssi
+    heapq.heappush(MIN_RSSI_HEAP[bearing], rssi)
+    heapq.heappush(MAX_RSSI_HEAP[bearing], -rssi)  # Use negative values for max-heap
 
 
 def expire_min_rssi(now: float) -> None:
@@ -136,12 +142,10 @@ def expire_min_rssi(now: float) -> None:
     """
     while MIN_RSSI_TIMESTAMPS and MIN_RSSI_TIMESTAMPS[0][0] < now - 30:
         _, bearing, rssi = MIN_RSSI_TIMESTAMPS.popleft()
-        if MIN_RSSI_BY_BEARING[bearing] == rssi:
-            # Recompute the minimum RSSI for this bearing
-            MIN_RSSI_BY_BEARING[bearing] = min(
-                (r for t, b, r in MIN_RSSI_TIMESTAMPS if b == bearing),
-                default=float(0)
-            )
+        MIN_RSSI_HEAP[bearing].remove(rssi)
+        MAX_RSSI_HEAP[bearing].remove(-rssi)
+        heapq.heapify(MIN_RSSI_HEAP[bearing])
+        heapq.heapify(MAX_RSSI_HEAP[bearing])
 
 
 def expire_distance_rssi_ratio(now: float) -> None:

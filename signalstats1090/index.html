@@ -193,7 +193,7 @@
         <canvas id="messageTypeChart"></canvas>
       </div>
       <div class="chart-item">
-        <div class="chart-title">ADS-B Mode-s Messages Type</div>
+        <div class="chart-title">ADS-B Messages Type</div>
         <div class="chart-description">This histogram shows the distribution of the types of ADS-B messages received.</div>
         <canvas id="adsbMessageTypeChart"></canvas>
       </div>
@@ -832,12 +832,12 @@
         "Aircraft Status",
         "Target State and Status Information",
         "Aircraft Operational Status",
-        "Unknown ADS-B",
-        "Non ADS-B"
+        "Unknown ADS-B"
+        //"Non ADS-B"
       ],
       datasets: [{
         label: "Count",
-        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         backgroundColor: [
           "rgba(255, 99, 132, 0.5)",
           "rgba(54, 162, 235, 0.5)",
@@ -849,8 +849,8 @@
           "rgba(255, 99, 132, 0.5)",
           "rgba(54, 162, 235, 0.5)",
           "rgba(75, 192, 192, 0.5)",
-          "rgba(153, 102, 255, 0.5)",
-          "rgba(255, 159, 64, 0.5)"
+          "rgba(153, 102, 255, 0.5)"
+          //"rgba(255, 159, 64, 0.5)"
         ],
         borderColor: [
           "rgba(255, 99, 132, 1)",
@@ -863,8 +863,8 @@
           "rgba(255, 99, 132, 1)",
           "rgba(54, 162, 235, 1)",
           "rgba(75, 192, 192, 1)",
-          "rgba(153, 102, 255, 1)",
-          "rgba(255, 159, 64, 1)"
+          "rgba(153, 102, 255, 1)"
+          //"rgba(255, 159, 64, 1)"
         ],
         borderWidth: 1
       }]
