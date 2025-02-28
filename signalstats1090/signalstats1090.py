@@ -378,6 +378,18 @@ def get_adsb_message_type(msg: str) -> str:
     else:
         return "Non ADS-B"
 
+def compute_bitrate() -> float:
+    """
+    Computes the estimated bitrate in bits per second over the last 30 seconds.
+    """
+    if not message_timestamps:
+        return 0.0
+    now = get_current_time()
+    recent_messages = [t for t in message_timestamps if now - t <= 30]
+    message_count = len(recent_messages)
+    average_message_size_bits = 112  # Assuming an average message size of 14 bytes (112 bits)
+    return (message_count * average_message_size_bits) / 30.0
+
 class ADSBClient(TcpClient):
     """
     Custom ADS-B client that extends TcpClient to handle Mode-S messages.
@@ -607,6 +619,7 @@ async def broadcast_stats_task() -> None:
                 with DATA_LOCK:
                     # Compute message rates in a single pass
                     rate_5s, rate_15s, rate_30s, rate_60s, rate_300s = compute_message_rates()
+                    bitrate = compute_bitrate()  # Compute the bitrate
     
                 if now - last_minute_update_time >= 60.0:
                     # Minute update
@@ -689,6 +702,7 @@ async def broadcast_stats_task() -> None:
                     "maxMsgRate": MAX_MESSAGE_RATE,
                     "memoryUsage": memory_info,
                     "cpuUsage": cpu_percent,
+                    "bitrate": bitrate,  # Add bitrate to the payload
                     "messageTypeCounts": message_type_counts,
                     "adsbMessageTypeCounts": {  # Aggiungi questo per i tipi di messaggi ADS-B
                         "Aircraft Identification": message_type_counts.get("Aircraft Identification", 0),
@@ -870,6 +884,8 @@ def main():
     else:
         parser.print_help()
         logger.info("Printed help message")
+
+
 
 
 if __name__ == "__main__":

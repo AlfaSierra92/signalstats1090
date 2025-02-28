@@ -122,6 +122,9 @@
         <strong>Messages/sec (5s):</strong> <br><span id="currentMsg5s">0</span>
       </div>
       <div class="value-item">
+        <strong>Bitrate:</strong><br> <span id="currentBitrate">0 kbps</span>
+      </div>
+      <div class="value-item">
         <strong>Messages/sec (max):</strong><br> <span id="currentMaxMsgRate">0</span>
       </div>
       <div class="value-item">
@@ -185,14 +188,13 @@
         <canvas id="distanceRssiRatioChart"></canvas>
       </div>
       <div class="chart-item">
-        <div class="chart-title">Tipologia di Messaggi Mode-S</div>
-        <div class="chart-description">Questo istogramma mostra la distribuzione delle tipologie di messaggi Mode-S ricevuti.</div>
+        <div class="chart-title">Mode-s Messages Type</div>
+        <div class="chart-description">This histogram shows the distribution of the types of Mode-S messages received.</div>
         <canvas id="messageTypeChart"></canvas>
       </div>
-      <!-- Aggiungi questo nuovo elemento canvas per il grafico degli ADS-B message type -->
       <div class="chart-item">
-        <div class="chart-title">Tipologia di Messaggi ADS-B</div>
-        <div class="chart-description">Questo istogramma mostra la distribuzione delle tipologie di messaggi ADS-B ricevuti.</div>
+        <div class="chart-title">ADS-B Mode-s Messages Type</div>
+        <div class="chart-description">This histogram shows the distribution of the types of ADS-B messages received.</div>
         <canvas id="adsbMessageTypeChart"></canvas>
       </div>
     </div>
@@ -904,6 +906,7 @@
         document.getElementById("currentMaxMsgRate").textContent = Number(data.maxMsgRate).toFixed(2);
         document.getElementById("currentMemoryUsage").textContent = data.memoryUsage.toFixed(2) + "%";
         document.getElementById("currentCpuUsage").textContent = data.cpuUsage.toFixed(2) + "%";
+        document.getElementById("currentBitrate").textContent = (data.bitrate / 1000).toFixed(2) + " kbps"; // Update bitrate
 
         // Update message type chart
         const messageTypeCounts = data.messageTypeCounts;
