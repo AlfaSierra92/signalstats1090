@@ -35,6 +35,9 @@ from pyModeS.extra.tcpclient import TcpClient
 import psutil
 import numpy as np
 
+# Aggiorna l'importazione di WebSocketServerProtocol
+from websockets.asyncio.server import serve
+
 proc = psutil.Process()
 
 # Global deque for timestamps within the last 300s
@@ -884,8 +887,6 @@ def main():
     else:
         parser.print_help()
         logger.info("Printed help message")
-
-
 
 
 if __name__ == "__main__":
