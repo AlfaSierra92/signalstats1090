@@ -43,6 +43,8 @@ gain adjustment can take several minutes to stabilize, so be patient.
   showing the distribution of messages by distance and bearing.
 - **RSSI/Distance Ratio**: Displays the ratio of RSSI to distance for each
   bearing segment.
+- **Mode-S Messages Type**: Displays the type of Mode-S messages received in the current day.
+- **ADS-B Messages Type**: Displays the type of ADS-B messages received in the current day.
 
 ![Screenshot](https://github.com/clemensv/signalstats1090/blob/main/media/screenshot.jpeg?raw=true)
 
