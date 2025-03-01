@@ -104,6 +104,29 @@ def get_current_time() -> float:
     """
     return time.time()
 
+def reset_message_type_counts():
+    """
+    Resetta i contatori dei tipi di messaggi ADS-B.
+    """
+    global message_type_counts
+    message_type_counts = {
+        "Short Air-Air Surveillance": 0,
+        "Long Air-Air Surveillance": 0,
+        "Other": 0,
+        "Unknown": 0,
+        "Aircraft Identification": 0,
+        "Surface Position": 0,
+        "Airborne Position (Baro Altitude)": 0,
+        "Airborne Velocities": 0,
+        "Airborne Position (GNSS Height)": 0,
+        "Reserved": 0,
+        "Surface System Status": 0,
+        "Aircraft Status": 0,
+        "Target State and Status Information": 0,
+        "Aircraft Operational Status": 0,
+        "Unknown ADS-B": 0,
+        "Non ADS-B": 0
+    }
 
 def update_signal_sliding_window(now: float) -> None:
     """
@@ -604,6 +627,7 @@ async def broadcast_stats_task() -> None:
     """
     last_minute_update_time = 0.0
     last_minute_update_time = get_current_time() // 60 * 60
+    last_reset_time = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     global MAX_MESSAGE_RATE
     global proc
     global message_type_counts
@@ -646,7 +670,8 @@ async def broadcast_stats_task() -> None:
                         "type": "com.vasters.signalstats1090.minuteUpdate",
                         "source": "signalstats1090",
                         "id": str(uuid.uuid4()),
-                        "time": datetime.datetime.utcnow().isoformat(),
+                        #"time": datetime.datetime.utcnow().isoformat(),
+                        "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                         "data": payload
                     }
     
@@ -659,7 +684,13 @@ async def broadcast_stats_task() -> None:
                             await ws_conn.send_text(json.dumps(cloudevent))
                         except Exception:
                             logger.error("Error broadcasting stats", exc_info=True)
-    
+
+                # Daily reset at midnight UTC
+                current_time = datetime.datetime.now(datetime.timezone.utc)
+                if current_time.timestamp() - last_reset_time >= 86400:  # 86400 seconds in a day
+                    last_reset_time = current_time.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                    reset_message_type_counts()
+
                 # Second update (every second)
                 with DATA_LOCK:
                     sig_min, sig_max, sig_avg = compute_signal_stats()
