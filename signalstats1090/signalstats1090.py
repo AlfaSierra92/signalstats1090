@@ -163,8 +163,17 @@ def expire_min_rssi(now: float) -> None:
     """
     Expires minimum RSSI values older than 30 seconds.
     """
+    #while MIN_RSSI_TIMESTAMPS and MIN_RSSI_TIMESTAMPS[0][0] < now - 30:
+    #    _, bearing, rssi = MIN_RSSI_TIMESTAMPS.popleft()
+    #    MIN_RSSI_HEAP[bearing].remove(rssi)
+    #    MAX_RSSI_HEAP[bearing].remove(-rssi)
+    #    heapq.heapify(MIN_RSSI_HEAP[bearing])
+    #    heapq.heapify(MAX_RSSI_HEAP[bearing])
+    expired_items = []
     while MIN_RSSI_TIMESTAMPS and MIN_RSSI_TIMESTAMPS[0][0] < now - 30:
-        _, bearing, rssi = MIN_RSSI_TIMESTAMPS.popleft()
+        expired_items.append(MIN_RSSI_TIMESTAMPS.popleft())
+
+    for _, bearing, rssi in expired_items:
         MIN_RSSI_HEAP[bearing].remove(rssi)
         MAX_RSSI_HEAP[bearing].remove(-rssi)
         heapq.heapify(MIN_RSSI_HEAP[bearing])
