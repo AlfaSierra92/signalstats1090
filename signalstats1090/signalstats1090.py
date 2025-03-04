@@ -39,6 +39,7 @@ import numpy as np
 
 # Aggiorna l'importazione di WebSocketServerProtocol
 from websockets.asyncio.server import serve
+import zmq
 
 proc = psutil.Process()
 
@@ -94,7 +95,25 @@ message_type_counts = {
     "Short Air-Air Surveillance": 0,
     "Long Air-Air Surveillance": 0,
     "Other": 0,
-    "Unknown": 0
+    "Unknown": 0,
+    "Comm-B, Altitude Reply": 0,
+    "Comm-B, Identity Reply": 0,
+    "Comm-D": 0,
+    "Comm-D Extended Squitter": 0,
+    "Comm-D Non-Transponder": 0,
+    "Short Surveillance": 0,
+    "Reserved": 0,
+    "Aircraft Identification": 0,
+    "Surface Position": 0,
+    "Airborne Position (Baro Altitude)": 0,
+    "Airborne Velocities": 0,
+    "Airborne Position (GNSS Height)": 0,
+    "Surface System Status": 0,
+    "Aircraft Status": 0,
+    "Target State and Status Information": 0,
+    "Aircraft Operational Status": 0,
+    "Unknown ADS-B": 0,
+    "Non ADS-B": 0
 }
 
 
@@ -515,7 +534,13 @@ class ADSBClient(TcpClient):
 
         while True:
             try:
-                received = [i for i in self.socket.recv(4096)]
+                received = []
+                while True:
+                    try:
+                        received = [i for i in self.socket.recv(4096, zmq.NOBLOCK)]
+                        break
+                    except zmq.error.Again:
+                        time.sleep(0.1)  # Attendi un po' prima di ritentare
                 self.buffer.extend(received)
                 messages = self.read_beast_buffer_rssi_piaware()
                 if not messages:
